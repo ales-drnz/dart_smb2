@@ -1,1 +1,0 @@
-/* CocoaPods requires at least one compilable source file. */

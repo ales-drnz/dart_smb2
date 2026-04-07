@@ -20,10 +20,12 @@ flutter:
       android:
         ffiPlugin: true
       ios:
+        pluginClass: DartSmb2Plugin
         ffiPlugin: true
       linux:
         ffiPlugin: true
       macos:
+        pluginClass: DartSmb2Plugin
         ffiPlugin: true
       windows:
         ffiPlugin: true

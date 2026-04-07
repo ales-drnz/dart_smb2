@@ -9,10 +9,9 @@ Pod::Spec.new do |s|
 
   s.osx.deployment_target = '10.14'
   s.dependency 'FlutterMacOS'
+  s.swift_version = '5.0'
 
-  # CocoaPods requires at least one source file to create a framework target.
-  # The actual native code is in the pre-built dylib.
-  s.source_files = 'dummy.c'
+  s.source_files = 'dart_smb2/Sources/dart_smb2/**/*'
 
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
 

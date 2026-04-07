@@ -8,14 +8,14 @@ Pod::Spec.new do |s|
   s.source           = { :path => '.' }
 
   s.ios.deployment_target = '12.0'
+  s.dependency 'Flutter'
+  s.swift_version = '5.0'
 
   # Pre-built xcframework downloaded from GitHub Releases during `pod install`.
   # Contains device (arm64) + simulator (arm64 + x86_64) slices.
   s.vendored_frameworks = 'libs/libsmb2_ios-arm64.xcframework'
 
-  # DartSmb2ForceLink.m references all smb2w_* symbols so the linker
-  # keeps them in the binary. Dart FFI needs them at runtime.
-  s.source_files = 'Classes/**/*'
+  s.source_files = 'dart_smb2/Sources/dart_smb2/**/*'
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
