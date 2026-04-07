@@ -42,4 +42,5 @@ analysis_options.yaml
 /linux/libs/
 /macos/libs/
 /ios/Frameworks/
+/ios/libs/
 /android/src/main/jniLibs/
