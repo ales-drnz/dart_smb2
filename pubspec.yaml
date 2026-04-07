@@ -1,0 +1,29 @@
+name: dart_smb2
+description: Fast, stable SMB2/3 client for Dart — powered by libsmb2.
+version: 0.0.1
+repository: https://github.com/ales-drnz/dart_smb2
+
+environment:
+  sdk: ^3.11.1
+  flutter: ">=3.3.0"
+
+dependencies:
+  ffi: ^2.1.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      ios:
+        ffiPlugin: true
+      linux:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true
