@@ -46,7 +46,7 @@ android {
         minSdk = 21
 
         // ── dart_smb2 NDK Integration ──────────────────────────────────────
-        // Pre-built libdart_smb2.so files are downloaded from GitHub Releases
+        // Pre-built libsmb2.so files are downloaded from GitHub Releases
         // and placed into src/main/jniLibs before the build.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -61,12 +61,12 @@ val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
     // Replace these SHA-256 hashes after building and uploading to GitHub Releases.
     val abis = mapOf(
         "arm64-v8a" to mapOf(
-            "file"   to "dart_smb2_android-arm64-v8a.so",
-            "sha256" to "0000000000000000000000000000000000000000000000000000000000000000"
+            "file"   to "libsmb2_android-arm64-v8a.so",
+            "sha256" to "8f09c14879cf8d4d06a463c7e06e83d436fc7fd00ab4a22d0195859afa84ce27"
         ),
         "x86_64" to mapOf(
-            "file"   to "dart_smb2_android-x86_64.so",
-            "sha256" to "0000000000000000000000000000000000000000000000000000000000000000"
+            "file"   to "libsmb2_android-x86_64.so",
+            "sha256" to "af0332d06cf4aea127144c8795b4f80fe681357f2a9ea1cdb0acdfb8ad876423"
         )
     )
 
@@ -79,7 +79,7 @@ val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
             val abiDir = file("${jniLibsDir}/${abi}")
             if (!abiDir.exists()) abiDir.mkdirs()
 
-            val targetFile = file("${abiDir}/libdart_smb2.so")
+            val targetFile = file("${abiDir}/libsmb2.so")
             var isValid = false
 
             if (targetFile.exists()) {
@@ -96,7 +96,7 @@ val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
 
             if (!isValid) {
                 val url = "${SMB2_BASE_URL}/${filename}"
-                println("[dart_smb2] Downloading libdart_smb2.so for ${abi} from ${url}")
+                println("[dart_smb2] Downloading libsmb2.so for ${abi} from ${url}")
                 try {
                     URL(url).openStream().use { input ->
                         FileOutputStream(targetFile).use { output ->
@@ -113,7 +113,7 @@ val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
                     }
                 } catch (e: Exception) {
                     if (targetFile.exists()) targetFile.delete()
-                    throw GradleException("[dart_smb2] Failed to download libdart_smb2.so for ${abi}: ${e.message}")
+                    throw GradleException("[dart_smb2] Failed to download libsmb2.so for ${abi}: ${e.message}")
                 }
             }
         }

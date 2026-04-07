@@ -18,7 +18,7 @@ import 'smb2_types.dart';
 ///
 /// ```dart
 /// final smb = await Smb2Isolate.connect(
-///   libPath: '/path/to/libdart_smb2.dylib',
+///   libPath: '/path/to/libsmb2.dylib',
 ///   host: '192.168.1.1',
 ///   share: 'Music',
 ///   user: 'guest',
@@ -34,7 +34,7 @@ class Smb2Isolate {
 
   /// Spawn an isolate, connect to the SMB share, and return the wrapper.
   ///
-  /// [libPath] is the path to the `libdart_smb2` shared library.
+  /// [libPath] is the path to the `libsmb2` shared library.
   /// Throws [Smb2Exception] if the connection fails.
   static Future<Smb2Isolate> connect({
     required String libPath,

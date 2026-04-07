@@ -13,9 +13,9 @@ endif()
 # The pre-built DLL is automatically downloaded from GitHub Releases if
 # missing or if the checksum does not match the expected value.
 
-set(_SMB2_DLL "${CMAKE_CURRENT_SOURCE_DIR}/libs/dart_smb2.dll")
+set(_SMB2_DLL "${CMAKE_CURRENT_SOURCE_DIR}/libs/libsmb2.dll")
 set(SMB2_RELEASE_VERSION "libsmb2-r1")
-set(EXPECTED_SHA256 "806dd9647fca834770fed353228e8dc383d7da4f747a21d45d5ffb93bd556c51")
+set(EXPECTED_SHA256 "863e44067e773db7301ed722806ad84439b1a249e65aebc5accb01c3376941b1")
 
 set(DOWNLOAD_NEEDED TRUE)
 
@@ -30,10 +30,10 @@ if(EXISTS "${_SMB2_DLL}")
 endif()
 
 if(DOWNLOAD_NEEDED)
-  message(STATUS "[dart_smb2] Downloading dart_smb2_windows-x86_64.dll from GitHub Releases...")
+  message(STATUS "[dart_smb2] Downloading libsmb2_windows-x86_64.dll from GitHub Releases...")
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/libs")
   file(DOWNLOAD
-    "https://github.com/ales-drnz/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}/dart_smb2_windows-x86_64.dll"
+    "https://github.com/ales-drnz/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}/libsmb2_windows-x86_64.dll"
     "${_SMB2_DLL}"
     SHOW_PROGRESS
     EXPECTED_HASH SHA256=${EXPECTED_SHA256}
@@ -42,12 +42,12 @@ if(DOWNLOAD_NEEDED)
   list(GET DOWNLOAD_STATUS 0 STATUS_CODE)
   if(NOT STATUS_CODE EQUAL 0)
     list(GET DOWNLOAD_STATUS 1 ERROR_MSG)
-    message(FATAL_ERROR "[dart_smb2] Failed to download dart_smb2.dll: ${ERROR_MSG}")
+    message(FATAL_ERROR "[dart_smb2] Failed to download libsmb2.dll: ${ERROR_MSG}")
   endif()
 endif()
 
 if(EXISTS "${_SMB2_DLL}")
   set(dart_smb2_bundled_libraries "${_SMB2_DLL}" PARENT_SCOPE)
 else()
-  message(FATAL_ERROR "[dart_smb2] dart_smb2.dll not found. It must be present in windows/libs/dart_smb2.dll")
+  message(FATAL_ERROR "[dart_smb2] libsmb2.dll not found. It must be present in windows/libs/libsmb2.dll")
 endif()

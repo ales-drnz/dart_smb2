@@ -131,7 +131,7 @@ Uint8List _ownedTypedList(Pointer<Uint8> buf, int length) {
 /// to keep the UI responsive.
 ///
 /// ```dart
-/// final client = Smb2Client.open('/path/to/libdart_smb2.dylib');
+/// final client = Smb2Client.open('/path/to/libsmb2.dylib');
 /// client.connect(host: '192.168.1.1', share: 'Music', user: 'guest');
 /// final entries = client.listDirectory('');
 /// client.disconnect();
@@ -204,14 +204,14 @@ class Smb2Client implements Finalizable {
       // .../App.app/Contents/MacOS/ → .../App.app/Contents/Frameworks/dart_smb2.framework/Versions/A/
       final exe = Platform.resolvedExecutable;
       final macOS = exe.substring(0, exe.lastIndexOf('/'));
-      final dylib = '$macOS/../Frameworks/dart_smb2.framework/Versions/A/libdart_smb2.dylib';
+      final dylib = '$macOS/../Frameworks/dart_smb2.framework/Versions/A/libsmb2.dylib';
       return DynamicLibrary.open(dylib);
     } else if (Platform.isIOS) {
       return DynamicLibrary.process();
     } else if (Platform.isAndroid || Platform.isLinux) {
-      return DynamicLibrary.open('libdart_smb2.so');
+      return DynamicLibrary.open('libsmb2.so');
     } else if (Platform.isWindows) {
-      return DynamicLibrary.open('dart_smb2.dll');
+      return DynamicLibrary.open('libsmb2.dll');
     }
     throw const Smb2Exception('Unsupported platform');
   }

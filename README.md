@@ -4,11 +4,11 @@
 
 [![](https://img.shields.io/pub/v/dart_smb2.svg)](https://pub.dev/packages/dart_smb2)
 [![](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
-[![](https://img.shields.io/badge/libsmb2-LGPL--2.1-orange.svg)](https://github.com/sahlberg/libsmb2)
+[![](https://img.shields.io/badge/libsmb2-v6.1.0-orange.svg)](https://github.com/sahlberg/libsmb2)
 [![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=flat&logo=github)](https://github.com/ales-drnz/dart_smb2)
 [![](https://img.shields.io/discord/1491115396663869470?logo=discord&logoColor=white)](https://discord.gg/ejSw5M24C2)
 
-<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/samba.png" width="70" align="left" style="margin-right: 15px;" alt="logo" />`dart_smb2` is an SMB2/3 client for Dart powered by [libsmb2](https://github.com/sahlberg/libsmb2). It provides synchronous FFI bindings, async isolate wrappers, a worker pool with auto-reconnect, and an optional caching layer. No external dependencies, no Kerberos required.
+<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/samba.png" width="70" align="left" style="margin-right: 15px;" alt="logo" />`dart_smb2` is an SMB2/3 client for Dart powered by [libsmb2](https://github.com/sahlberg/libsmb2). It provides synchronous FFI bindings, async isolate wrappers, a worker pool with auto-reconnect, and an optional caching layer.
 <br clear="left"/>
 
 ---
@@ -24,11 +24,11 @@ dependencies:
 
 ### Platform Requirements
 
-*   **Android**: minSdk 21 (Android 5.0), compileSdk 33, NDK 25.1.
+*   **Android**: SDK 21 (Android 5.0) or above.
 *   **iOS**: 12.0 or above.
-*   **macOS**: 10.14 or above.
-*   **Windows**: CMake 3.10+.
-*   **Linux**: CMake 3.10+.
+*   **macOS**: 10.14 or above (Apple Silicon).
+*   **Windows**: x86_64.
+*   **Linux**: x86_64.
 
 ---
 
@@ -38,7 +38,7 @@ dependencies:
 | :--- | :--- | :---: | :---: | :---: |
 | **Android** | arm64-v8a, x86_64 | ✅ | ✅ | v6.1.0 |
 | **iOS** | arm64, x86_64 | ✅ | ✅ | v6.1.0 |
-| **macOS** | arm64, x86_64 | ✅ | — | v6.1.0 |
+| **macOS** | arm64 | ✅ | — | v6.1.0 |
 | **Windows** | x86_64 | ✅ | — | v6.1.0 |
 | **Linux** | x86_64 | ✅ | — | v6.1.0 |
 
@@ -101,7 +101,7 @@ import 'package:dart_smb2/dart_smb2.dart';
 void main() async {
   // Connect with the async isolate wrapper
   final smb = await Smb2Isolate.connect(
-    libPath: '/path/to/libdart_smb2.dylib',
+    libPath: '/path/to/libsmb2.dylib',
     host: '192.168.1.100',
     share: 'Files',
     user: 'user',
@@ -170,7 +170,7 @@ client.disconnect();
 `Smb2Client.open()` loads the bundled native library automatically when used as a Flutter plugin. Pass a custom path for standalone Dart scripts:
 
 ```dart
-final client = Smb2Client.open('/custom/path/libdart_smb2.dylib');
+final client = Smb2Client.open('/custom/path/libsmb2.dylib');
 ```
 
 #### 1.2 Async Isolate
@@ -179,7 +179,7 @@ Spawns a dedicated isolate with its own `Smb2Client`. All operations return `Fut
 
 ```dart
 final smb = await Smb2Isolate.connect(
-  libPath: '/path/to/libdart_smb2.dylib',
+  libPath: '/path/to/libsmb2.dylib',
   host: '192.168.1.100',
   share: 'Files',
   user: 'user',
@@ -614,7 +614,7 @@ Require a running SMB2/3 server. Set the following environment variables:
 | `SMB2_SHARE` | Share name |
 | `SMB2_USER` | Username (optional) |
 | `SMB2_PASS` | Password (optional) |
-| `SMB2_LIB_PATH` | Path to the compiled shared library |
+| `SMB2_LIB_PATH` | Path to the libsmb2 library |
 | `SMB2_TEST_FILE` | Path to an existing file on the share (optional — auto-detected if unset) |
 
 ```bash
@@ -622,7 +622,7 @@ SMB2_HOST=192.168.1.1 \
 SMB2_SHARE=Files \
 SMB2_USER=user \
 SMB2_PASS=pass \
-SMB2_LIB_PATH=macos/libs/libdart_smb2.dylib \
+SMB2_LIB_PATH=/path/to/libsmb2.dylib \
 SMB2_TEST_FILE=Documents/report.pdf \
 dart test test/smb2_client_test.dart test/smb2_pool_test.dart test/smb2_cached_pool_test.dart -r expanded
 ```
@@ -637,15 +637,10 @@ dart test test/smb2_client_test.dart test/smb2_pool_test.dart test/smb2_cached_p
 
 ## Funding
 
-If you find this library useful and want to support its development, consider becoming a supporter on **Patreon**. For questions and discussion, join the **Discord** server:
+If you find this library useful and want to support its development, consider becoming a supporter on **Patreon**:
 
 [![](https://img.shields.io/badge/Patreon-F96854?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/cw/ales_drnz)
-[![](https://img.shields.io/discord/1491115396663869470?style=for-the-badge&logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/ejSw5M24C2)
 
 ---
 
-## License
-
-This package is licensed under the **BSD 3-Clause License**.
-
-libsmb2 is licensed under **LGPL v2.1**. It is statically linked into the wrapper library. See the [libsmb2 license](https://github.com/sahlberg/libsmb2/blob/master/COPYING) for details.
+*Developed by Alessandro Di Ronza*

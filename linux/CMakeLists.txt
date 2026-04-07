@@ -11,9 +11,9 @@ endif()
 # The pre-built shared library is automatically downloaded from GitHub Releases
 # if missing or if the checksum does not match the expected value.
 
-set(_SMB2_SO "${CMAKE_CURRENT_SOURCE_DIR}/libs/libdart_smb2.so")
+set(_SMB2_SO "${CMAKE_CURRENT_SOURCE_DIR}/libs/libsmb2.so")
 set(SMB2_RELEASE_VERSION "libsmb2-r1")
-set(EXPECTED_SHA256 "0000000000000000000000000000000000000000000000000000000000000000")
+set(EXPECTED_SHA256 "5036560dcc3e4004e4417562d217d08835008071536b84e2a83313ef43ad54b6")
 
 set(DOWNLOAD_NEEDED TRUE)
 
@@ -28,10 +28,10 @@ if(EXISTS "${_SMB2_SO}")
 endif()
 
 if(DOWNLOAD_NEEDED)
-  message(STATUS "[dart_smb2] Downloading dart_smb2_linux-x86_64.so from GitHub Releases...")
+  message(STATUS "[dart_smb2] Downloading libsmb2_linux-x86_64.so from GitHub Releases...")
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/libs")
   file(DOWNLOAD
-    "https://github.com/ales-drnz/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}/dart_smb2_linux-x86_64.so"
+    "https://github.com/ales-drnz/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}/libsmb2_linux-x86_64.so"
     "${_SMB2_SO}"
     SHOW_PROGRESS
     EXPECTED_HASH SHA256=${EXPECTED_SHA256}
@@ -40,13 +40,13 @@ if(DOWNLOAD_NEEDED)
   list(GET DOWNLOAD_STATUS 0 STATUS_CODE)
   if(NOT STATUS_CODE EQUAL 0)
     list(GET DOWNLOAD_STATUS 1 ERROR_MSG)
-    message(FATAL_ERROR "[dart_smb2] Failed to download libdart_smb2.so: ${ERROR_MSG}")
+    message(FATAL_ERROR "[dart_smb2] Failed to download libsmb2.so: ${ERROR_MSG}")
   endif()
 endif()
 
 if(EXISTS "${_SMB2_SO}")
-  message(STATUS "[dart_smb2] Using bundled libdart_smb2: ${_SMB2_SO}")
+  message(STATUS "[dart_smb2] Using bundled libsmb2: ${_SMB2_SO}")
   set(dart_smb2_bundled_libraries "${_SMB2_SO}" PARENT_SCOPE)
 else()
-  message(FATAL_ERROR "[dart_smb2] libdart_smb2.so not found. It must be present in linux/libs/libdart_smb2.so")
+  message(FATAL_ERROR "[dart_smb2] libsmb2.so not found. It must be present in linux/libs/libsmb2.so")
 endif()
