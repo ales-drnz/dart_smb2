@@ -8,7 +8,7 @@
 [![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=flat&logo=github)](https://github.com/ales-drnz/dart_smb2)
 [![](https://img.shields.io/discord/1491115396663869470?logo=discord&logoColor=white)](https://discord.gg/ejSw5M24C2)
 
-<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/samba.png" width="70" align="left" style="margin-right: 15px;" alt="logo" />`dart_smb2` is an SMB2/3 client for Dart powered by [libsmb2](https://github.com/sahlberg/libsmb2). It provides synchronous FFI bindings, async isolate wrappers, a worker pool with auto-reconnect, and an optional caching layer.
+<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/dart_smb2.png" width="70" align="left" style="margin-right: 15px;" alt="logo" />`dart_smb2` is an SMB2/3 client for Dart powered by [libsmb2](https://github.com/sahlberg/libsmb2). It provides synchronous FFI bindings, async isolate wrappers, a worker pool with auto-reconnect, and an optional caching layer.
 <br clear="left"/>
 
 ---
@@ -19,7 +19,7 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.0.1
+  dart_smb2: ^0.0.1+1
 ```
 
 ### Platform Requirements
@@ -73,7 +73,6 @@ dependencies:
 *   [Types Reference](#types-reference)
 *   [Testing](#testing)
 *   [Funding](#funding)
-*   [License](#license)
 
 ---
 
