@@ -50,6 +50,9 @@ class Smb2Pool {
     int workers = 4,
     int timeoutSeconds = 30,
     String? libPath,
+    bool seal = false,
+    bool signing = false,
+    Smb2Version version = Smb2Version.any,
   }) async {
     final params = _ConnectParams(
       host: host,
@@ -59,9 +62,21 @@ class Smb2Pool {
       domain: domain,
       timeoutSeconds: timeoutSeconds,
       libPath: libPath,
+      seal: seal,
+      signing: signing,
+      version: version,
     );
     final futures = List.generate(workers, (_) => _Worker.spawn(params));
-    final workerList = await Future.wait(futures);
+    late final List<_Worker> workerList;
+    try {
+      workerList = await Future.wait(futures);
+    } catch (_) {
+      // Kill any workers that succeeded before the failure.
+      for (final f in futures) {
+        f.then((w) => w.close()).ignore();
+      }
+      rethrow;
+    }
     return Smb2Pool._(workerList, params);
   }
 
@@ -142,7 +157,85 @@ class Smb2Pool {
   Future<int> fileSize(String path) =>
       _sendWithRetry('fileSize', {'path': path});
 
-  // ─── File handles (open once, read many, close once) ───────────────────
+  /// Send a keepalive echo to the server.
+  ///
+  /// Uses one worker to check if the connection is healthy.
+  Future<void> echo() => _sendWithRetry('echo', {});
+
+  /// Get filesystem statistics (total/free space).
+  Future<Smb2StatVfs> statvfs(String path) =>
+      _sendWithRetry('statvfs', {'path': path});
+
+  /// Read the target path of a symbolic link.
+  Future<String> readlink(String path) =>
+      _sendWithRetry('readlink', {'path': path});
+
+  /// Flush all buffered writes on a file handle to the server.
+  Future<void> fsyncHandle(Smb2PoolHandle handle) async {
+    await handle._worker.send('fsync', {'handleId': handle._id});
+  }
+
+  /// Truncate an open file handle to [length] bytes.
+  Future<void> ftruncateHandle(Smb2PoolHandle handle, int length) async {
+    await handle._worker.send('ftruncate', {
+      'handleId': handle._id,
+      'length': length,
+    });
+  }
+
+  /// Check whether a file or directory exists.
+  ///
+  /// Returns `true` if the path exists, `false` if it does not.
+  /// Throws [Smb2Exception] on connection or permission errors.
+  Future<bool> exists(String path) async {
+    try {
+      await stat(path);
+      return true;
+    } on Smb2Exception catch (e) {
+      if (e.type == Smb2ErrorType.fileNotFound) return false;
+      rethrow;
+    }
+  }
+
+  // ─── File writing ──────────────────────────────────────────────────────
+
+  /// Write [data] to a file at [offset], creating it if it doesn't exist.
+  Future<void> writeFileRange(
+    String path,
+    Uint8List data, {
+    int offset = 0,
+  }) => _sendWriteWithRetry('writeRange', data, {
+    'path': path,
+    'offset': offset,
+  });
+
+  /// Write [data] to a file, creating or truncating it.
+  Future<void> writeFile(String path, Uint8List data) =>
+      _sendWriteWithRetry('writeFile', data, {'path': path});
+
+  // ─── File/directory management ────────────────────────────────────────
+
+  /// Delete a file.
+  Future<void> deleteFile(String path) =>
+      _sendWithRetry('deleteFile', {'path': path});
+
+  /// Create a directory.
+  Future<void> mkdir(String path) =>
+      _sendWithRetry('mkdir', {'path': path});
+
+  /// Delete an empty directory.
+  Future<void> rmdir(String path) =>
+      _sendWithRetry('rmdir', {'path': path});
+
+  /// Rename or move a file or directory.
+  Future<void> rename(String oldPath, String newPath) =>
+      _sendWithRetry('rename', {'oldPath': oldPath, 'newPath': newPath});
+
+  /// Truncate a file to [length] bytes.
+  Future<void> truncate(String path, int length) =>
+      _sendWithRetry('truncate', {'path': path, 'length': length});
+
+  // ─── File handles ──────────────────────────────────────────────────────
 
   /// Open a file for reading and return a handle tied to one worker.
   ///
@@ -222,6 +315,59 @@ class Smb2Pool {
     }
   }
 
+  /// Open a file for writing and return a handle tied to one worker.
+  ///
+  /// The file is created if it doesn't exist.
+  /// Use [writeToHandle] to write, then [closeHandle] when done.
+  Future<Smb2PoolHandle> openFileWrite(String path) async {
+    var worker = _nextWorker;
+    try {
+      final handleId = await worker.send<int>('openFileWrite', {'path': path});
+      return Smb2PoolHandle._(worker, handleId, path);
+    } on Smb2Exception catch (e) {
+      if (!_isConnectionError(e) || _closed) rethrow;
+      worker = await _reconnectWorker(worker);
+      final handleId = await worker.send<int>('openFileWrite', {'path': path});
+      return Smb2PoolHandle._(worker, handleId, path);
+    }
+  }
+
+  /// Write [data] at [offset] to an open write handle.
+  ///
+  /// On connection failure, reconnects the worker, reopens the file,
+  /// and retries the write transparently.
+  Future<void> writeToHandle(
+    Smb2PoolHandle handle,
+    Uint8List data, {
+    int offset = 0,
+  }) async {
+    try {
+      await handle._worker.send('writeHandle', {
+        'handleId': handle._id,
+        'data': TransferableTypedData.fromList([data]),
+        'offset': offset,
+      });
+    } on Smb2Exception catch (e) {
+      if (!_isConnectionError(e) || _closed) rethrow;
+      await _reopenWriteHandle(handle);
+      await handle._worker.send('writeHandle', {
+        'handleId': handle._id,
+        'data': TransferableTypedData.fromList([data]),
+        'offset': offset,
+      });
+    }
+  }
+
+  /// Reconnect the worker and reopen the file for writing.
+  Future<void> _reopenWriteHandle(Smb2PoolHandle handle) async {
+    handle._worker = await _reconnectWorker(handle._worker);
+    final newId = await handle._worker.send<int>(
+      'openFileWrite',
+      {'path': handle._path},
+    );
+    handle._id = newId;
+  }
+
   /// Reconnect the worker and reopen the file, updating the handle in-place.
   Future<void> _reopenHandle(Smb2PoolHandle handle) async {
     handle._worker = await _reconnectWorker(handle._worker);
@@ -230,6 +376,35 @@ class Smb2Pool {
       {'path': handle._path},
     );
     handle._id = newId;
+  }
+
+  /// Write data from a [Stream] to a file without loading everything into RAM.
+  ///
+  /// Opens a write handle, writes each chunk sequentially, and closes.
+  ///
+  /// Unlike other write operations, streamed writes do **not** retry on
+  /// connection failure — a partial write cannot be safely resumed because
+  /// the server-side state is unknown. If the connection drops mid-stream,
+  /// the error is propagated immediately.
+  Future<void> streamWrite(String path, Stream<Uint8List> chunks) async {
+    final handle = await openFileWrite(path);
+    try {
+      await ftruncateHandle(handle, 0);
+      int offset = 0;
+      await for (final chunk in chunks) {
+        // Send directly to the worker without retry — a reconnect would
+        // reopen the file and lose track of how many bytes the server
+        // actually received, causing data corruption.
+        await handle._worker.send('writeHandle', {
+          'handleId': handle._id,
+          'data': TransferableTypedData.fromList([chunk]),
+          'offset': offset,
+        });
+        offset += chunk.length;
+      }
+    } finally {
+      await closeHandle(handle);
+    }
   }
 
   /// Stream a file in chunks without loading everything into RAM.
@@ -276,6 +451,32 @@ class Smb2Pool {
     }
   }
 
+  /// Like [_sendWithRetry] but for write commands that carry [Uint8List] data.
+  ///
+  /// A fresh [TransferableTypedData] is created for each attempt because
+  /// a transferred buffer can only be materialized once — reusing it on
+  /// retry would crash.
+  Future<void> _sendWriteWithRetry(
+    String cmd,
+    Uint8List data,
+    Map<String, dynamic> args,
+  ) async {
+    var worker = _nextWorker;
+    try {
+      await worker.send(cmd, {
+        ...args,
+        'data': TransferableTypedData.fromList([data]),
+      });
+    } on Smb2Exception catch (e) {
+      if (!_isConnectionError(e) || _closed) rethrow;
+      worker = await _reconnectWorker(worker);
+      await worker.send(cmd, {
+        ...args,
+        'data': TransferableTypedData.fromList([data]),
+      });
+    }
+  }
+
   /// Closes [worker], spawns a fresh replacement at the same slot, and returns it.
   Future<_Worker> _reconnectWorker(_Worker worker) async {
     final idx = _workers.indexOf(worker);
@@ -307,6 +508,8 @@ class _ConnectParams {
   final String host, share;
   final String? user, password, domain, libPath;
   final int timeoutSeconds;
+  final bool seal, signing;
+  final Smb2Version version;
 
   const _ConnectParams({
     required this.host,
@@ -316,6 +519,9 @@ class _ConnectParams {
     this.domain,
     this.timeoutSeconds = 30,
     this.libPath,
+    this.seal = false,
+    this.signing = false,
+    this.version = Smb2Version.any,
   });
 }
 
@@ -340,6 +546,9 @@ class _Worker {
         domain: p.domain,
         timeoutSeconds: p.timeoutSeconds,
         libPath: p.libPath,
+        seal: p.seal,
+        signing: p.signing,
+        version: p.version,
       ),
     );
 
@@ -354,19 +563,26 @@ class _Worker {
 
   Future<T> send<T>(String cmd, Map<String, dynamic> args) async {
     final replyPort = ReceivePort();
-    _sendPort.send({...args, 'cmd': cmd, 'replyTo': replyPort.sendPort});
-    final result = await replyPort.first;
-    replyPort.close();
-    if (result is _ErrorMsg) {
-      throw Smb2Exception(
-        result.message,
-        result.errorCode,
-        result.errorTypeIndex != null
-            ? Smb2ErrorType.values[result.errorTypeIndex!]
-            : Smb2ErrorType.unknown,
-      );
+    try {
+      _sendPort.send({...args, 'cmd': cmd, 'replyTo': replyPort.sendPort});
+      final result = await replyPort.first;
+      if (result is _ErrorMsg) {
+        throw Smb2Exception(
+          result.message,
+          result.errorCode,
+          result.errorTypeIndex != null
+              ? Smb2ErrorType.values[result.errorTypeIndex!]
+              : Smb2ErrorType.unknown,
+        );
+      }
+      // Materialize zero-copy transferred buffers back to Uint8List.
+      if (result is TransferableTypedData) {
+        return result.materialize().asUint8List() as T;
+      }
+      return result as T;
+    } finally {
+      replyPort.close();
     }
-    return result as T;
   }
 
   Future<void> close() async {
@@ -393,6 +609,8 @@ class _InitMsg {
   final String host, share;
   final String? user, password, domain, libPath;
   final int timeoutSeconds;
+  final bool seal, signing;
+  final Smb2Version version;
 
   _InitMsg({
     required this.sendPort,
@@ -403,6 +621,9 @@ class _InitMsg {
     this.domain,
     this.timeoutSeconds = 30,
     this.libPath,
+    this.seal = false,
+    this.signing = false,
+    this.version = Smb2Version.any,
   });
 }
 
@@ -428,6 +649,9 @@ void _workerMain(_InitMsg init) {
       password: init.password,
       domain: init.domain,
       timeoutSeconds: init.timeoutSeconds,
+      seal: init.seal,
+      signing: init.signing,
+      version: init.version,
     );
   } catch (e) {
     init.sendPort.send(e.toString());
@@ -458,17 +682,77 @@ void _workerMain(_InitMsg init) {
             domain: msg['domain'] as String?,
           ));
         case 'readRange':
-          replyTo?.send(client.readFileRange(
+          final rangeData = client.readFileRange(
             msg['path'] as String,
             offset: msg['offset'] as int? ?? 0,
             length: msg['length'] as int,
-          ));
+          );
+          replyTo?.send(TransferableTypedData.fromList([rangeData]));
         case 'readFile':
-          replyTo?.send(client.readFile(msg['path'] as String));
+          final fileData = client.readFile(msg['path'] as String);
+          replyTo?.send(TransferableTypedData.fromList([fileData]));
         case 'stat':
           replyTo?.send(client.stat(msg['path'] as String));
         case 'fileSize':
           replyTo?.send(client.fileSize(msg['path'] as String));
+
+        case 'echo':
+          client.echo();
+          replyTo?.send(true);
+        case 'statvfs':
+          replyTo?.send(client.statvfs(msg['path'] as String));
+        case 'readlink':
+          replyTo?.send(client.readlink(msg['path'] as String));
+        case 'fsync':
+          final fhSync = handles[msg['handleId'] as int];
+          if (fhSync == null) {
+            replyTo?.send(_ErrorMsg('Invalid handle'));
+            return;
+          }
+          client.fsync(fhSync);
+          replyTo?.send(true);
+        case 'ftruncate':
+          final fhTrunc = handles[msg['handleId'] as int];
+          if (fhTrunc == null) {
+            replyTo?.send(_ErrorMsg('Invalid handle'));
+            return;
+          }
+          client.ftruncate(fhTrunc, msg['length'] as int);
+          replyTo?.send(true);
+
+        // ── Write commands ────────────────────────────────────────────
+        case 'writeRange':
+          final writeRangeData = (msg['data'] as TransferableTypedData)
+              .materialize().asUint8List();
+          client.writeFileRange(
+            msg['path'] as String,
+            writeRangeData,
+            offset: msg['offset'] as int? ?? 0,
+          );
+          replyTo?.send(true);
+        case 'writeFile':
+          final writeFileData = (msg['data'] as TransferableTypedData)
+              .materialize().asUint8List();
+          client.writeFile(msg['path'] as String, writeFileData);
+          replyTo?.send(true);
+        case 'deleteFile':
+          client.deleteFile(msg['path'] as String);
+          replyTo?.send(true);
+        case 'mkdir':
+          client.mkdir(msg['path'] as String);
+          replyTo?.send(true);
+        case 'rmdir':
+          client.rmdir(msg['path'] as String);
+          replyTo?.send(true);
+        case 'rename':
+          client.rename(
+            msg['oldPath'] as String,
+            msg['newPath'] as String,
+          );
+          replyTo?.send(true);
+        case 'truncate':
+          client.truncate(msg['path'] as String, msg['length'] as int);
+          replyTo?.send(true);
 
         // ── File handle commands ──────────────────────────────────────
         case 'openFile':
@@ -487,11 +771,31 @@ void _workerMain(_InitMsg init) {
             replyTo?.send(_ErrorMsg('Invalid handle'));
             return;
           }
-          replyTo?.send(client.readHandle(
+          final handleData = client.readHandle(
             fh,
             offset: msg['offset'] as int? ?? 0,
             length: msg['length'] as int,
-          ));
+          );
+          replyTo?.send(TransferableTypedData.fromList([handleData]));
+        case 'openFileWrite':
+          final fh = client.openFileHandleWrite(msg['path'] as String);
+          final id = nextHandleId++;
+          handles[id] = fh;
+          replyTo?.send(id);
+        case 'writeHandle':
+          final fh = handles[msg['handleId'] as int];
+          if (fh == null) {
+            replyTo?.send(_ErrorMsg('Invalid handle'));
+            return;
+          }
+          final writeHandleData = (msg['data'] as TransferableTypedData)
+              .materialize().asUint8List();
+          client.writeHandle(
+            fh,
+            writeHandleData,
+            offset: msg['offset'] as int? ?? 0,
+          );
+          replyTo?.send(true);
         case 'closeHandle':
           final id = msg['handleId'] as int;
           final fh = handles.remove(id);

@@ -14,8 +14,8 @@ endif()
 # missing or if the checksum does not match the expected value.
 
 set(_SMB2_DLL "${CMAKE_CURRENT_SOURCE_DIR}/libs/libsmb2.dll")
-set(SMB2_RELEASE_VERSION "libsmb2-r1")
-set(EXPECTED_SHA256 "863e44067e773db7301ed722806ad84439b1a249e65aebc5accb01c3376941b1")
+set(SMB2_RELEASE_VERSION "libsmb2-r2")
+set(EXPECTED_SHA256 "617eb156e2aec8bbd8cfc3da363a5565636155a59d20e32cb4f49bd0ee837a38")
 
 set(DOWNLOAD_NEEDED TRUE)
 

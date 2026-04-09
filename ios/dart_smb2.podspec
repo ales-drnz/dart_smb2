@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'dart_smb2'
-  s.version          = '0.0.1'
+  s.version          = '0.0.2'
   s.summary          = 'SMB2/3 client for Dart.'
   s.homepage         = 'https://github.com/ales-drnz/dart_smb2'
   s.license          = { :type => 'BSD-3-Clause' }
@@ -26,8 +26,8 @@ Pod::Spec.new do |s|
   # The xcframework is uploaded as a zip: libsmb2_ios-arm64.xcframework.zip
   s.prepare_command = <<-CMD
     set -e
-    RELEASE="libsmb2-r1"
-    EXPECTED_SHA="b47776fadb75651ff1b2a1bc226a7fe411af6a12dfd51a8802c3544cd9bcb7cb"
+    RELEASE="libsmb2-r2"
+    EXPECTED_SHA="86e257d6784d54ebbb82557e0c807bab9929ceb60d76ff4b79248e10522cf124"
     URL="https://github.com/ales-drnz/dart_smb2/releases/download/${RELEASE}/libsmb2_ios-arm64.xcframework.zip"
 
     mkdir -p libs

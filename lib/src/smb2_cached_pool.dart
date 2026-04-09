@@ -4,6 +4,8 @@
 
 import 'dart:typed_data';
 
+import 'smb2_error_type.dart';
+import 'smb2_exceptions.dart';
 import 'smb2_pool.dart';
 import 'smb2_types.dart';
 
@@ -90,6 +92,21 @@ class CachedSmb2Pool {
     return result;
   }
 
+  /// Check whether a file or directory exists.
+  ///
+  /// Uses the stat cache when available.
+  /// Returns `true` if the path exists, `false` if it does not.
+  /// Throws [Smb2Exception] on connection or permission errors.
+  Future<bool> exists(String path) async {
+    try {
+      await stat(path);
+      return true;
+    } on Smb2Exception catch (e) {
+      if (e.type == Smb2ErrorType.fileNotFound) return false;
+      rethrow;
+    }
+  }
+
   // ─── Cache management ────────────────────────────────────────────────
 
   /// Remove cached entries for [path] from both stat and directory caches.
@@ -103,6 +120,84 @@ class CachedSmb2Pool {
     _statCache.clear();
     _dirCache.clear();
   }
+
+  /// Invalidate caches for [path] and its parent directory.
+  void _invalidatePath(String path) {
+    invalidate(path);
+    _invalidateParent(path);
+  }
+
+  /// Invalidate the parent directory's listing cache.
+  void _invalidateParent(String path) {
+    final sep = path.lastIndexOf('/');
+    final parent = sep > 0 ? path.substring(0, sep) : '';
+    _dirCache.remove(parent);
+  }
+
+  // ─── Write operations (invalidate cache) ─────────────────────────────
+
+  /// Write [data] to a file at [offset], creating it if it doesn't exist.
+  Future<void> writeFileRange(
+    String path,
+    Uint8List data, {
+    int offset = 0,
+  }) async {
+    await _pool!.writeFileRange(path, data, offset: offset);
+    _invalidatePath(path);
+  }
+
+  /// Write [data] to a file, creating or truncating it.
+  Future<void> writeFile(String path, Uint8List data) async {
+    await _pool!.writeFile(path, data);
+    _invalidatePath(path);
+  }
+
+  /// Delete a file.
+  Future<void> deleteFile(String path) async {
+    await _pool!.deleteFile(path);
+    _invalidatePath(path);
+  }
+
+  /// Create a directory.
+  Future<void> mkdir(String path) async {
+    await _pool!.mkdir(path);
+    _invalidateParent(path);
+  }
+
+  /// Delete an empty directory.
+  Future<void> rmdir(String path) async {
+    await _pool!.rmdir(path);
+    _invalidatePath(path);
+  }
+
+  /// Rename or move a file or directory.
+  Future<void> rename(String oldPath, String newPath) async {
+    await _pool!.rename(oldPath, newPath);
+    _invalidatePath(oldPath);
+    _invalidatePath(newPath);
+  }
+
+  /// Truncate a file to [length] bytes.
+  Future<void> truncate(String path, int length) async {
+    await _pool!.truncate(path, length);
+    _invalidatePath(path);
+  }
+
+  /// Send a keepalive echo to the server.
+  Future<void> echo() => _pool!.echo();
+
+  /// Get filesystem statistics (total/free space).
+  Future<Smb2StatVfs> statvfs(String path) => _pool!.statvfs(path);
+
+  /// Read the target path of a symbolic link.
+  Future<String> readlink(String path) => _pool!.readlink(path);
+
+  /// Flush all buffered writes on a file handle to the server.
+  Future<void> fsyncHandle(Smb2PoolHandle handle) => _pool!.fsyncHandle(handle);
+
+  /// Truncate an open file handle to [length] bytes.
+  Future<void> ftruncateHandle(Smb2PoolHandle handle, int length) =>
+      _pool!.ftruncateHandle(handle, length);
 
   // ─── Direct delegation ───────────────────────────────────────────────
 
@@ -137,6 +232,17 @@ class CachedSmb2Pool {
   /// Open a file for reading and return a handle tied to one worker.
   Future<Smb2PoolHandle> openFile(String path) => _pool!.openFile(path);
 
+  /// Open a file for writing and return a handle tied to one worker.
+  Future<Smb2PoolHandle> openFileWrite(String path) => _pool!.openFileWrite(path);
+
+  /// Write [data] at [offset] to an open write handle.
+  Future<void> writeToHandle(
+    Smb2PoolHandle handle,
+    Uint8List data, {
+    int offset = 0,
+  }) =>
+      _pool!.writeToHandle(handle, data, offset: offset);
+
   /// Open a file and get its size in one call.
   Future<(Smb2PoolHandle, int)> openFileWithSize(String path) =>
       _pool!.openFileWithSize(path);
@@ -152,6 +258,12 @@ class CachedSmb2Pool {
   /// Close an open file handle.
   Future<void> closeHandle(Smb2PoolHandle handle) =>
       _pool!.closeHandle(handle);
+
+  /// Write data from a [Stream] to a file without loading everything into RAM.
+  Future<void> streamWrite(String path, Stream<Uint8List> chunks) async {
+    await _pool!.streamWrite(path, chunks);
+    _invalidatePath(path);
+  }
 
   /// Stream a file in chunks without loading everything into RAM.
   Stream<Uint8List> streamFile(

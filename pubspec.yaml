@@ -1,6 +1,6 @@
 name: dart_smb2
-description: "Flutter SMB2/3 built on top of libsmb2. Targets macOS, Windows, Linux, iOS and Android."
-version: 0.0.1+2
+description: Flutter SMB2/3 client built on top of libsmb2. Targets macOS, Windows, Linux, iOS and Android.
+version: 0.0.2
 homepage: https://github.com/ales-drnz/dart_smb2
 repository: https://github.com/ales-drnz/dart_smb2
 issue_tracker: https://github.com/ales-drnz/dart_smb2/issues
@@ -9,6 +9,7 @@ topics:
   - cross-platform
   - smb2
   - smb3
+  - samba
   - libsmb2
 
 platforms:
