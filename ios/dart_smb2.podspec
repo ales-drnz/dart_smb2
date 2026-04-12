@@ -26,7 +26,7 @@ Pod::Spec.new do |s|
   # The xcframework is uploaded as a zip: libsmb2_ios-arm64.xcframework.zip
   s.prepare_command = <<-CMD
     set -e
-    RELEASE="libsmb2-r2"
+    RELEASE="libsmb2-r3"
     EXPECTED_SHA="e79f92c10c9cbfd89c1c3fdfcfb2378a78f0ee907a0714cf712318eb2a7a9f3e"
     URL="https://github.com/ales-drnz/dart_smb2/releases/download/${RELEASE}/libsmb2_ios-arm64.xcframework.zip"
 

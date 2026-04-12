@@ -19,7 +19,7 @@ Pod::Spec.new do |s|
   # Runs during `pod install`.
   s.prepare_command = <<-CMD
     set -e
-    RELEASE="libsmb2-r2"
+    RELEASE="libsmb2-r3"
     EXPECTED_SHA="cf4c3027c8104a12223fd013e0c5f101a49f7a926143b1da29b1bb1bceb58926"
     DEST="libs/libsmb2.dylib"
 
