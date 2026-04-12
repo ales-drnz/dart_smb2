@@ -3,7 +3,7 @@ import java.net.URL
 import java.security.MessageDigest
 
 group = "com.alesdrnz.dart_smb2"
-version = "0.0.3"
+version = "0.0.4"
 
 buildscript {
     repositories {
@@ -54,7 +54,7 @@ android {
     }
 }
 
-val SMB2_RELEASE_VERSION = "libsmb2-r2"
+val SMB2_RELEASE_VERSION = "libsmb2-r3"
 val SMB2_BASE_URL = "https://github.com/ales-drnz/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}"
 
 val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
@@ -62,11 +62,11 @@ val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
     val abis = mapOf(
         "arm64-v8a" to mapOf(
             "file"   to "libsmb2_android-arm64-v8a.so",
-            "sha256" to "7ef938d118b65071a8885bdee97d9d3977c1fe15860858950574b96fa506d450"
+            "sha256" to "c3957d3c5a82d8443e3d8be4fe8e63b7ae62fba9134939729e3720a7ddfaba4a"
         ),
         "x86_64" to mapOf(
             "file"   to "libsmb2_android-x86_64.so",
-            "sha256" to "5bce962427be4756676a169781fba06bff57bec5eecdd7efc82d2d18aa4dfd03"
+            "sha256" to "939800c6b4638841f293416b012fa0e153a480dbfc506b87ecbb4a4fc91a940f"
         )
     )
 
