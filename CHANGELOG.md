@@ -1,3 +1,7 @@
+## [0.0.5] - 12-04-2026
+
+- **Fixed**: Incorrect lib version in `.podspec`.
+
 ## [0.0.4] - 12-04-2026
 
 - **Fixed**: Linux `libsmb2.so` was built as ARM64 (Docker default on Apple Silicon) and failed to load on x86_64 hosts; build now forces `--platform=linux/amd64`.
