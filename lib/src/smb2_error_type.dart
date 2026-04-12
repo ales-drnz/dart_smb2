@@ -142,4 +142,72 @@ enum Smb2ErrorType {
 
         _ => Smb2ErrorType.unknown,
       };
+
+  /// Classify a libsmb2 error message string.
+  ///
+  /// libsmb2's transport-level failure paths (`POLLHUP`, `POLLERR`,
+  /// `Read from socket failed`, `Failed to open smb2 socket`, etc.) call
+  /// `smb2_set_error()` without updating the context's NT status. As a result
+  /// `smb2w_get_errno()` returns 0 — or worse, a *stale* errno from an earlier
+  /// operation — and pure errno-based classification misses these as
+  /// connection failures, breaking auto-reconnect.
+  ///
+  /// This classifier inspects the freshest signal — the message libsmb2 just
+  /// produced — and recognises the substrings emitted by the C library's
+  /// socket layer. Returns [unknown] when no marker matches; callers should
+  /// fall through to [fromErrno] in that case.
+  ///
+  /// Substrings are matched case-insensitively. The list is intentionally
+  /// derived from a static audit of libsmb2's `smb2_set_error()` call sites
+  /// in `socket.c`, `libsmb2.c`, `sync.c`, and `pdu.c`.
+  static Smb2ErrorType fromMessage(String message) {
+    if (message.isEmpty) return Smb2ErrorType.unknown;
+    final m = message.toLowerCase();
+
+    // Timeout — libsmb2's wait loops ('Timeout expired …') and the strerror
+    // form of ETIMEDOUT ('… timed out') for the rare case where libsmb2
+    // formats errno-derived text into a smb2_set_error() call.
+    if (m.contains('timeout expired') || m.contains('timed out')) {
+      return Smb2ErrorType.timeout;
+    }
+
+    // Transport / socket failures.  Each substring corresponds to a known
+    // libsmb2 error message that is emitted via `smb2_set_error()` (which
+    // does not update the NT status), so errno-based classification cannot
+    // catch them.
+    const connectionMarkers = <String>[
+      'pollhup',                       // socket.c POLLHUP path
+      'pollerr',                       // socket.c POLLERR path
+      'socket error',                  // socket.c smb2_service variants
+      'read from socket failed',       // socket.c read paths (both variants)
+      'error when writing to',         // socket.c write path
+      'remote closed connection',      // socket.c read EOF
+      'not connected',                 // socket.c / sync.c "Not Connected to Server"
+      'socket connect failed',         // libsmb2.c connect path
+      'failed to open smb2 socket',    // socket.c socket() failure
+      'connect failed with errno',     // socket.c connect() failure
+      'alreeady disconnected',         // libsmb2.c (sic — upstream typo, kept verbatim)
+      'already disconnected',          // future-proof if upstream fixes the typo
+      'no connected tree-id',          // pdu.c — server tore down the session (idle teardown)
+      'no tree-id connected',          // pdu.c — same condition, different code path
+    ];
+    for (final marker in connectionMarkers) {
+      if (m.contains(marker)) return Smb2ErrorType.connection;
+    }
+
+    return Smb2ErrorType.unknown;
+  }
+
+  /// Combined classifier — prefers the message (which reflects the current
+  /// failure) and falls back to the errno mapping.
+  ///
+  /// This is the right entry point for code that has both a libsmb2 message
+  /// and an errno value. The message is consulted first because libsmb2's
+  /// `nterror` field is *not reset* between operations — a stale errno from
+  /// a prior call can otherwise misclassify a fresh transport failure.
+  static Smb2ErrorType classify(String message, int errno) {
+    final fromMsg = fromMessage(message);
+    if (fromMsg != Smb2ErrorType.unknown) return fromMsg;
+    return fromErrno(errno);
+  }
 }

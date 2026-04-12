@@ -3,8 +3,8 @@
 #### SMB2/3 client for Dart & Flutter.
 
 [![](https://img.shields.io/pub/v/dart_smb2.svg)](https://pub.dev/packages/dart_smb2)
-[![](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 [![](https://img.shields.io/badge/libsmb2-v6.1.0-orange.svg)](https://github.com/sahlberg/libsmb2)
+[![](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 [![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=flat&logo=github)](https://github.com/ales-drnz/dart_smb2)
 [![](https://img.shields.io/discord/1491115396663869470?logo=discord&logoColor=white)](https://discord.gg/ejSw5M24C2)
 
@@ -19,7 +19,7 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.0.2
+  dart_smb2: ^0.0.3
 ```
 
 ### Platform Requirements
@@ -973,8 +973,6 @@ The test suite is split into unit tests (no server required) and integration tes
 ```bash
 dart test test/smb2_error_type_test.dart
 ```
-
-Covers `Smb2ErrorType.fromErrno` mappings (macOS, Linux, Windows errno values) and `Smb2Exception` behaviour.
 
 ### Integration tests
 

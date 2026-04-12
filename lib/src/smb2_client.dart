@@ -405,7 +405,8 @@ class Smb2Client implements Finalizable {
     malloc.free(pDomain);
 
     if (_ctx == nullptr) {
-      throw Smb2Exception(_lastError().toDartString());
+      final msg = _lastError().toDartString();
+      throw Smb2Exception(msg, null, Smb2ErrorType.fromMessage(msg));
     }
     _finalizer.attach(this, _ctx.cast(), detach: this);
   }
@@ -972,6 +973,13 @@ class Smb2Client implements Finalizable {
   }
 
   /// Build a typed [Smb2Exception] from the current context error.
+  ///
+  /// Classification consults the libsmb2 message first, then the errno.
+  /// libsmb2's transport-failure paths (`POLLHUP`, `POLLERR`,
+  /// `Read from socket failed`, …) call `smb2_set_error()` without updating
+  /// the context's NT status, so the errno can be 0 — or a *stale* value from
+  /// an earlier operation. Trusting the message keeps these failures
+  /// classified as [Smb2ErrorType.connection] so auto-reconnect kicks in.
   Smb2Exception _makeError(String prefix) {
     final ptr = _error(_ctx);
     final msg = ptr == nullptr ? 'Unknown error' : ptr.toDartString();
@@ -979,14 +987,22 @@ class Smb2Client implements Finalizable {
     return Smb2Exception(
       '$prefix: $msg',
       errno,
-      Smb2ErrorType.fromErrno(errno),
+      Smb2ErrorType.classify(msg, errno),
     );
   }
 
   /// Build a typed [Smb2Exception] from the thread-local last error.
+  ///
+  /// Used when the libsmb2 context could not be created (e.g. connect
+  /// failure), so there is no errno available — classification is purely
+  /// message-based.
   Smb2Exception _makeLastError(String prefix) {
     final msg = _lastError().toDartString();
-    return Smb2Exception('$prefix: $msg');
+    return Smb2Exception(
+      '$prefix: $msg',
+      null,
+      Smb2ErrorType.fromMessage(msg),
+    );
   }
 
   static Smb2FileType _parseType(int type) => switch (type) {

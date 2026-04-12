@@ -1,3 +1,7 @@
+## [0.0.3] - 12-04-2026
+
+- **Fixed**: transport failures (`POLLHUP`, `POLLERR`, socket read/write errors, connect failures, lost tree-id after server-side idle teardown, …) now classify as `Smb2ErrorType.connection` instead of `unknown`.
+
 ## [0.0.2] - 09-04-2026
 
 - **Core**: write operations, write handles, file management (`mkdir`, `rmdir`, `deleteFile`, `rename`, `truncate`), filesystem info (`statvfs`, `readlink`, `echo`, `fsync`, `ftruncate`, `exists`), security options (`seal`, `signing`, `version`), `Smb2Version` enum, `Smb2StatVfs` type, native binaries updated to `libsmb2-r2`.
