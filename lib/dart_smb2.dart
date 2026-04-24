@@ -4,17 +4,18 @@
 
 /// Fast, stable SMB2/3 client for Dart — powered by libsmb2.
 ///
-/// Exposes four layers of abstraction:
-/// - [Smb2Client] — synchronous FFI client for use inside isolates.
-/// - [Smb2Isolate] — async isolate wrapper for single-connection use.
-/// - [Smb2Pool] — multi-worker pool with round-robin dispatch and auto-reconnect.
-/// - [CachedSmb2Pool] — TTL-based caching layer over [Smb2Pool].
+/// Exposes three layers of abstraction:
+/// - [Smb2Client] — synchronous FFI client for use inside your own isolates.
+/// - [Smb2Pool] — async multi-worker pool with auto-reconnect and
+///   scope-based file helpers ([Smb2Pool.withFile], [Smb2Pool.streamFile],
+///   [Smb2Pool.downloadToFile]). The recommended entry point.
+/// - [CachedSmb2Pool] — optional TTL cache over [Smb2Pool] for `stat`
+///   and `listDirectory`.
 library;
 
 export 'src/smb2_cached_pool.dart';
 export 'src/smb2_client.dart';
 export 'src/smb2_error_type.dart';
 export 'src/smb2_exceptions.dart';
-export 'src/smb2_isolate.dart';
 export 'src/smb2_pool.dart';
 export 'src/smb2_types.dart';

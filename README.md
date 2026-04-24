@@ -8,7 +8,7 @@
 [![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=flat&logo=github)](https://github.com/ales-drnz/dart_smb2)
 [![](https://img.shields.io/discord/1491115396663869470?logo=discord&logoColor=white)](https://discord.gg/ejSw5M24C2)
 
-<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/dart_smb2.png" width="70" align="left" style="margin-right: 15px;" alt="logo" />`dart_smb2` is an SMB2/3 client for Dart powered by [libsmb2](https://github.com/sahlberg/libsmb2). It provides synchronous FFI bindings, async isolate wrappers, a worker pool with auto-reconnect, and an optional caching layer.
+<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/dart_smb2.png" width="70" align="left" style="margin-right: 15px;" alt="logo" />`dart_smb2` is an SMB2/3 client for Dart powered by [libsmb2](https://github.com/sahlberg/libsmb2). It provides synchronous FFI bindings, a worker-isolate pool with auto-reconnect, scope-based file helpers and an optional caching layer.
 <br clear="left"/>
 
 ---
@@ -19,12 +19,12 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.0.5
+  dart_smb2: ^0.0.6
 ```
 
 ### Platform Requirements
 
-*   **Android**: SDK 21 (Android 5.0) or above.
+*   **Android**: SDK 24 (Android 7.0) or above.
 *   **iOS**: 12.0 or above.
 *   **macOS**: 10.14 or above (Apple Silicon).
 *   **Windows**: x86_64.
@@ -52,11 +52,10 @@ dependencies:
 *   [Guide](#guide)
     *   [1. Connection & Lifecycle](#1-connection--lifecycle)
         *   [1.1 Sync Client](#11-sync-client)
-        *   [1.2 Async Isolate](#12-async-isolate)
-        *   [1.3 Worker Pool](#13-worker-pool)
-        *   [1.4 Cached Pool](#14-cached-pool)
-        *   [1.5 Disconnecting](#15-disconnecting)
-        *   [1.6 Security Options](#16-security-options)
+        *   [1.2 Worker Pool](#12-worker-pool)
+        *   [1.3 Cached Pool](#13-cached-pool)
+        *   [1.4 Disconnecting](#14-disconnecting)
+        *   [1.5 Security Options](#15-security-options)
     *   [2. Path Format](#2-path-format)
     *   [3. Directory Listing](#3-directory-listing)
     *   [4. File Metadata](#4-file-metadata)
@@ -69,8 +68,10 @@ dependencies:
     *   [5. Reading Files](#5-reading-files)
         *   [5.1 Read Entire File](#51-read-entire-file)
         *   [5.2 Partial Read (Byte Range)](#52-partial-read-byte-range)
-        *   [5.3 Streaming (Chunked)](#53-streaming-chunked)
-        *   [5.4 File Handles (Read)](#54-file-handles-read)
+        *   [5.3 Scoped File Access (withFile)](#53-scoped-file-access-withfile)
+        *   [5.4 Streaming (Chunked)](#54-streaming-chunked)
+        *   [5.5 Download to File](#55-download-to-file)
+        *   [5.6 Low-Level File Handles](#56-low-level-file-handles)
     *   [6. Writing Files](#6-writing-files)
         *   [6.1 Write Entire File](#61-write-entire-file)
         *   [6.2 Partial Write (Byte Range)](#62-partial-write-byte-range)
@@ -92,6 +93,7 @@ dependencies:
 *   [Types Reference](#types-reference)
 *   [Testing](#testing)
 *   [Permissions](#permissions)
+*   [Project Background](#project-background)
 *   [Funding](#funding)
 
 ---
@@ -123,8 +125,10 @@ The following images demonstrate the example app included in the `example/` dire
 - 📂 **Directory Listing** — returns name, type, size, and timestamps per entry with no additional per-entry round-trips.
 - 📄 **Partial File Reads** — read specific byte ranges with `pread` — ideal for reading partial content without downloading the full file.
 - 📦 **Full File Reads** — download entire files into memory.
-- 🔁 **Streaming** — chunked reads and writes via sync `Iterable` or async `Stream`.
-- 🔓 **File Handles** — open once, read or write many times to minimize round-trips.
+- 🔁 **Streaming** — chunked reads and writes via sync `Iterable` or async `Stream`, with progress + cancel callbacks and a single persistent handle.
+- ⬇️ **Download to File** — writes an SMB file to a local `File` with progress and cancel support.
+- 🧹 **Scoped File Access** — `withFile(path, body)` opens a read handle, runs your callback with a read-on-demand `Smb2File`, and guarantees cleanup on any exit path (including exceptions and cancellation).
+- 🔓 **File Handles** — open once, read or write many times to minimize round-trips. A Dart `Finalizer` closes leaked handles as a safety net.
 - ✏️ **File Writing** — write entire files or partial byte ranges with automatic chunking.
 - 🔍 **Exists Check** — check if a file or directory exists without reading it.
 - 🗂️ **File & Directory Management** — create directories, delete files/directories, rename/move, and truncate.
@@ -134,7 +138,7 @@ The following images demonstrate the example app included in the `example/` dire
 - 🖲️ **Connection Health** — keepalive `echo` ping to detect disconnections early.
 - 🔄 **Flush & Truncate** — `fsync` to persist writes and `ftruncate` on open handles.
 - 🌐 **Share Enumeration** — list all shares on a server without an active connection.
-- 🧵 **Isolate-Safe** — sync API designed for Dart isolates, with async wrappers for UI threads.
+- 🧵 **Isolate-Safe** — sync `Smb2Client` designed to run inside Dart isolates; never blocks the UI thread when used via `Smb2Pool`.
 - 🏊 **Worker Pool** — multiple isolate workers with automatic reconnect on connection errors.
 - 💾 **Caching Layer** — optional TTL-based cache for `stat` and `listDirectory` calls, with automatic invalidation on write operations.
 
@@ -143,13 +147,13 @@ The following images demonstrate the example app included in the `example/` dire
 ## Quick Start
 
 ```dart
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:dart_smb2/dart_smb2.dart';
 
 void main() async {
-  // Connect with the async isolate wrapper
-  final smb = await Smb2Isolate.connect(
-    libPath: '/path/to/libsmb2.dylib',
+  // Connect the worker pool (auto-reconnect on connection errors)
+  final pool = await Smb2Pool.connect(
     host: '192.168.1.100',
     share: 'Files',
     user: 'user',
@@ -157,31 +161,45 @@ void main() async {
   );
 
   // List a directory
-  final entries = await smb.listDirectory('Documents/Projects');
+  final entries = await pool.listDirectory('Documents/Projects');
   for (final entry in entries) {
     print('${entry.name} — ${entry.size} bytes');
   }
 
-  // Read first 256 KB of a file
-  final header = await smb.readFileRange(
+  // Read the first 256 KB of a file
+  final header = await pool.readFileRange(
     'Documents/report.pdf',
     length: 256 * 1024,
   );
 
-  // Read entire file
-  final bytes = await smb.readFile('Documents/image.jpg');
+  // Download a file to disk with progress + cancel
+  await pool.downloadToFile(
+    'Music/song.flac',
+    File('/tmp/song.flac'),
+    onProgress: (received, total) =>
+        print('${(received / total * 100).toStringAsFixed(1)}%'),
+  );
+
+  // Read on-demand with a scoped handle (auto-closed)
+  final tags = await pool.withFile('Music/song.flac', (file) async {
+    final header = await file.read(length: 64 * 1024);
+    return parseTags(header); // your code
+  });
 
   // Write a file
-  await smb.writeFile('Documents/notes.txt', Uint8List.fromList('Hello SMB!'.codeUnits));
+  await pool.writeFile(
+    'Documents/notes.txt',
+    Uint8List.fromList('Hello SMB!'.codeUnits),
+  );
 
   // Create a directory
-  await smb.mkdir('Documents/NewFolder');
+  await pool.mkdir('Documents/NewFolder');
 
   // Get file info
-  final info = await smb.stat('Documents/report.pdf');
+  final info = await pool.stat('Documents/report.pdf');
   print('Size: ${info.size}, Modified: ${info.modified}');
 
-  await smb.disconnect();
+  await pool.disconnect();
 }
 ```
 
@@ -191,21 +209,20 @@ void main() async {
 
 ### 1. Connection & Lifecycle
 
-`dart_smb2` offers four layers of abstraction. Choose the one that fits your use case:
+`dart_smb2` offers three layers of abstraction. Pick the highest one that fits your use case — `Smb2Pool` is the recommended default.
 
 | Layer | Class | Best for |
 | :--- | :--- | :--- |
 | Sync FFI | `Smb2Client` | Scripts, background isolates, maximum control |
-| Async Isolate | `Smb2Isolate` | Single-connection Flutter apps |
-| Worker Pool | `Smb2Pool` | Concurrent access, auto-reconnect |
+| Worker Pool | `Smb2Pool` | **Default**. Async, multi-worker, auto-reconnect, scope-based file helpers |
 | Cached Pool | `CachedSmb2Pool` | Repeated `stat`/`listDirectory` calls with TTL |
 
 #### 1.1 Sync Client
 
-The core layer. All operations are blocking — run it in an isolate to avoid blocking the UI thread.
+The core layer. All operations are blocking — run it in an isolate to avoid blocking the UI thread. The bundled native library loads automatically on every supported platform — no path configuration required.
 
 ```dart
-final client = Smb2Client.open(); // auto-loads bundled library
+final client = Smb2Client.open();
 
 client.connect(
   host: '192.168.1.100',
@@ -221,32 +238,11 @@ client.connect(
 client.disconnect();
 ```
 
-`Smb2Client.open()` loads the bundled native library automatically when used as a Flutter plugin. Pass a custom path for standalone Dart scripts:
-
-```dart
-final client = Smb2Client.open('/custom/path/libsmb2.dylib');
-```
-
-#### 1.2 Async Isolate
-
-Spawns a dedicated isolate with its own `Smb2Client`. All operations return `Future`s.
-
-```dart
-final smb = await Smb2Isolate.connect(
-  libPath: '/path/to/libsmb2.dylib',
-  host: '192.168.1.100',
-  share: 'Files',
-  user: 'user',
-  password: 'pass',
-);
-
-final entries = await smb.listDirectory('');
-await smb.disconnect();
-```
-
-#### 1.3 Worker Pool
+#### 1.2 Worker Pool
 
 Spawns N isolate workers connected to the same share. Operations are dispatched round-robin. If a worker loses connection, it automatically reconnects and retries the operation.
+
+For single-connection use cases (the old `Smb2Isolate`), set `workers: 1` — you get the same single-connection semantics plus automatic reconnect.
 
 ```dart
 final pool = await Smb2Pool.connect(
@@ -264,7 +260,7 @@ final entries = await pool.listDirectory('');
 await pool.disconnect();
 ```
 
-#### 1.4 Cached Pool
+#### 1.3 Cached Pool
 
 Wraps an `Smb2Pool` with an in-memory TTL cache for `stat` and `listDirectory`. All other operations pass through directly.
 
@@ -293,18 +289,17 @@ cached.clearCache();
 await cached.disconnect();
 ```
 
-#### 1.5 Disconnecting
+#### 1.4 Disconnecting
 
 Always disconnect when done. This releases the native SMB2 context and kills any spawned isolates.
 
 ```dart
 client.disconnect();          // Smb2Client (sync)
-await smb.disconnect();       // Smb2Isolate
 await pool.disconnect();      // Smb2Pool
 await cached.disconnect();    // CachedSmb2Pool
 ```
 
-#### 1.6 Security Options
+#### 1.5 Security Options
 
 All `connect` methods accept optional security parameters:
 
@@ -496,9 +491,44 @@ final header = await pool.readFileRange(
 );
 ```
 
-#### 5.3 Streaming (Chunked)
+#### 5.3 Scoped File Access (withFile)
 
-Reads a file in chunks, yielding each chunk as it arrives. Uses a sync `Iterable` on `Smb2Client` and an async `Stream` on `Smb2Pool` and `Smb2Isolate`.
+Opens a file for reading, runs your callback with a scoped [`Smb2File`], and **guarantees the handle is closed** on any exit path — including exceptions, early returns, and cancellation.
+
+This is the recommended way to read a file when you need more than a single one-shot read (e.g. parsing metadata that may need ranged fallback reads).
+
+```dart
+final tags = await pool.withFile('Music/song.flac', (file) async {
+  print('File is ${file.size} bytes');
+
+  // Initial header read — typically enough for most tag formats.
+  final header = await file.read(length: 64 * 1024);
+
+  // Some tag formats need bytes beyond the header (e.g. Vorbis comments
+  // stored at arbitrary offsets). Expose `file.read` as a fallback reader
+  // and only fetch more bytes when the parser actually needs them.
+  return parseVorbisComments(
+    header,
+    fileSize: file.size,
+    fallbackRead: (offset, length) => file.read(offset: offset, length: length),
+  );
+});
+```
+
+If you already know the file size from a prior `stat` or directory listing, pass it via `knownSize` to skip the `fstat` round-trip:
+
+```dart
+final stat = await pool.stat('Music/song.flac');
+await pool.withFile(
+  'Music/song.flac',
+  (file) async { /* … */ },
+  knownSize: stat.size,
+);
+```
+
+#### 5.4 Streaming (Chunked)
+
+Reads a file in chunks via a **single persistent handle** (one `Create` + N `Read` + one `Close` on the wire), with optional progress and cancellation callbacks.
 
 **Sync (Smb2Client):**
 
@@ -508,17 +538,56 @@ for (final chunk in client.readFileChunked('data/large_file.bin', chunkSize: 102
 }
 ```
 
-**Async (Smb2Pool / Smb2Isolate):**
+**Async (Smb2Pool / CachedSmb2Pool):**
 
 ```dart
-await for (final chunk in pool.streamFile('data/large_file.bin', chunkSize: 1024 * 1024)) {
+bool canceled = false;
+
+await for (final chunk in pool.streamFile(
+  'data/large_file.bin',
+  chunkSize: 1024 * 1024,
+  onProgress: (received, total) {
+    print('${(received / total * 100).toStringAsFixed(1)}% '
+          '($received / $total bytes)');
+  },
+  isCanceled: () => canceled,
+)) {
   sink.add(chunk);
 }
 ```
 
-#### 5.4 File Handles (Read)
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `chunkSize` | `1 MiB` | Dart-side buffer per iteration. Network-level chunking is automatic (libsmb2 splits into server-negotiated `MaxReadSize` packets, typically 1 MiB). |
+| `onProgress` | — | Called after each chunk with `(received, total)` byte counts. |
+| `isCanceled` | — | Polled after each chunk. Returning `true` aborts the stream with `Smb2Exception`. |
 
-Open a file once and read from it multiple times without reopening. This minimizes round-trips for repeated reads on the same file.
+The handle is closed automatically when the stream completes, errors, or the listener cancels its subscription.
+
+#### 5.5 Download to File
+
+One-call convenience that streams an SMB file to a local `File` via [`streamFile`]. Equivalent to streaming and piping to `File.openWrite()`, with `onProgress` and `isCanceled` wired through.
+
+```dart
+import 'dart:io';
+
+await pool.downloadToFile(
+  'Music/song.flac',
+  File('/tmp/song.flac'),
+  onProgress: (received, total) {
+    print('${(received / total * 100).toStringAsFixed(1)}%');
+  },
+  isCanceled: () => userHitCancelButton,
+);
+```
+
+> **Atomicity:** if the download is canceled or errors, the destination file is left as-is (truncated or partially written). For safe replacement of an existing file, write to `dest.part` and rename on success.
+
+#### 5.6 Low-Level File Handles
+
+When you need finer control than `withFile` provides — e.g. a handle that outlives a single scope, or reusing a handle across multiple independent reads — the raw open/close primitives are still available.
+
+> **Prefer `withFile`, `streamFile`, or `downloadToFile`** whenever you can. They are safer (guaranteed cleanup) and more efficient (persistent handle). Reach for the raw API only when those don't fit.
 
 **Sync (Smb2Client):**
 
@@ -547,12 +616,17 @@ client.closeHandle(handle);
 ```dart
 final (handle, size) = await pool.openFileWithSize('data/file.bin');
 
-final data = await pool.readFromHandle(handle, offset: 0, length: size);
-
-await pool.closeHandle(handle);
+try {
+  final data = await pool.readFromHandle(handle, offset: 0, length: size);
+  // ...
+} finally {
+  await pool.closeHandle(handle);
+}
 ```
 
 If the connection drops during a read, the pool automatically reconnects the worker and reopens the file handle before retrying.
+
+> **Safety net:** if an `Smb2PoolHandle` is garbage-collected without `closeHandle` being called, a `closeHandle` command is sent to the worker from the finalizer as a best-effort cleanup. **Do not rely on this** — always close explicitly (or use `withFile`) for deterministic, prompt cleanup.
 
 ---
 
@@ -568,7 +642,7 @@ Creates or overwrites a file with the given data. The file is truncated before w
 client.writeFile('Documents/notes.txt', Uint8List.fromList('Hello!'.codeUnits));
 ```
 
-**Async (Smb2Pool / Smb2Isolate / CachedSmb2Pool):**
+**Async (Smb2Pool / CachedSmb2Pool):**
 
 ```dart
 await pool.writeFile('Documents/notes.txt', Uint8List.fromList('Hello!'.codeUnits));
@@ -585,7 +659,7 @@ Writes data at a specific offset without truncating the file. Creates the file i
 client.writeFileRange('data/file.bin', myBytes, offset: 100);
 ```
 
-**Async (Smb2Pool / Smb2Isolate / CachedSmb2Pool):**
+**Async (Smb2Pool / CachedSmb2Pool):**
 
 ```dart
 await pool.writeFileRange('data/file.bin', myBytes, offset: 100);
@@ -593,7 +667,7 @@ await pool.writeFileRange('data/file.bin', myBytes, offset: 100);
 
 #### 6.3 Streaming Write (Chunked)
 
-Writes data from chunks without loading the entire file into RAM. Uses a sync `Iterable` on `Smb2Client` and an async `Stream` on `Smb2Pool`, `Smb2Isolate`, and `CachedSmb2Pool`.
+Writes data from chunks without loading the entire file into RAM. Uses a sync `Iterable` on `Smb2Client` and an async `Stream` on `Smb2Pool` and `CachedSmb2Pool`.
 
 **Sync (Smb2Client):**
 
@@ -601,7 +675,7 @@ Writes data from chunks without loading the entire file into RAM. Uses a sync `I
 client.writeFileChunked('data/large_file.bin', generateChunks());
 ```
 
-**Async (Smb2Pool / Smb2Isolate / CachedSmb2Pool):**
+**Async (Smb2Pool / CachedSmb2Pool):**
 
 ```dart
 final fileStream = File('local_file.bin').openRead().cast<Uint8List>();
@@ -662,12 +736,23 @@ await pool.closeHandle(handle);
 
 Truncate an open file handle to a specific size. More efficient than path-based `truncate()` when the file is already open.
 
-```dart
-// Sync
-client.ftruncate(handle, 1024);
+**Sync (Smb2Client):**
 
-// Pool
-await pool.ftruncateHandle(handle, 1024);
+```dart
+final handle = client.openFileHandleWrite('data/file.bin');
+client.ftruncate(handle, 1024);
+client.closeHandle(handle);
+```
+
+**Pool:**
+
+```dart
+final handle = await pool.openFileWrite('data/file.bin');
+try {
+  await pool.ftruncateHandle(handle, 1024);
+} finally {
+  await pool.closeHandle(handle);
+}
 ```
 
 ---
@@ -760,12 +845,6 @@ final shares = await Smb2Pool.listSharesOn(
 );
 ```
 
-**Isolate (on an existing connection):**
-
-```dart
-final shares = await smb.listShares();
-```
-
 **CachedSmb2Pool (delegates to the underlying pool, not cached):**
 
 ```dart
@@ -802,6 +881,8 @@ final cached = CachedSmb2Pool(pool, ttl: Duration(seconds: 30));
 | `readFile()` | ❌ | — |
 | `readFileRange()` | ❌ | — |
 | `streamFile()` | ❌ | — |
+| `withFile()` | ❌ | — |
+| `downloadToFile()` | ❌ | — |
 | `fileSize()` | ❌ | — |
 | `openFile()` / `openFileWithSize()` | ❌ | — |
 | `readFromHandle()` / `closeHandle()` | ❌ | — |
@@ -875,7 +956,7 @@ on Smb2Exception catch (e) {
 }
 ```
 
-> **Note:** `Smb2Pool` handles reconnection automatically. You only need manual retry logic with `Smb2Client` or `Smb2Isolate`.
+> **Note:** `Smb2Pool` handles reconnection automatically. You only need manual retry logic with `Smb2Client`.
 
 ---
 
@@ -976,7 +1057,9 @@ dart test test/smb2_error_type_test.dart
 
 ### Integration tests
 
-Require a running SMB2/3 server. Set the following environment variables:
+Integration tests are for contributors to this package — a Flutter app consuming `dart_smb2` never needs any of this; the native library loads automatically.
+
+Require a running SMB2/3 server and a path to the platform-specific library (since the test process runs outside the Flutter plugin system that normally handles loading). Use `flutter test` so the bundled binary is resolved under `macos/libs/` / `linux/libs/` / etc:
 
 | Variable | Description |
 | :--- | :--- |
@@ -984,7 +1067,7 @@ Require a running SMB2/3 server. Set the following environment variables:
 | `SMB2_SHARE` | Share name |
 | `SMB2_USER` | Username (optional) |
 | `SMB2_PASS` | Password (optional) |
-| `SMB2_LIB_PATH` | Path to the libsmb2 library |
+| `SMB2_LIB_PATH` | Absolute path to the bundled `libsmb2` binary for your host OS |
 | `SMB2_TEST_FILE` | Path to an existing file on the share (optional — auto-detected if unset) |
 
 ```bash
@@ -992,9 +1075,9 @@ SMB2_HOST=192.168.1.1 \
 SMB2_SHARE=Files \
 SMB2_USER=user \
 SMB2_PASS=pass \
-SMB2_LIB_PATH=/path/to/libsmb2.dylib \
+SMB2_LIB_PATH="$PWD/macos/libs/libsmb2.dylib" \
 SMB2_TEST_FILE=Documents/report.pdf \
-dart test test/smb2_client_test.dart test/smb2_pool_test.dart test/smb2_cached_pool_test.dart test/smb2_write_test.dart -r expanded
+flutter test test/ -r expanded
 ```
 
 **`smb2_pool_test.dart`** covers `Smb2Pool` end-to-end: basic operations, file handles, streaming, round-robin distribution, disconnect behaviour, and performance benchmarks (sequential/parallel throughput, stat latency, handle cycle time).
@@ -1023,6 +1106,12 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 <key>com.apple.security.network.client</key>
 <true/>
 ```
+
+---
+
+## Project Background
+
+The native bindings, FFI wrappers, and isolate logic were implemented through the use of **Claude Code** and **Antigravity**, **Gemini** models were used for the example app UI.
 
 ---
 

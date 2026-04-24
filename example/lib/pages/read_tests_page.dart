@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dart_smb2/dart_smb2.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -91,25 +93,114 @@ class _ReadTestsPageState extends ConsumerState<ReadTestsPage> with SmbTestPageM
           return '$resolvedPath: ${(await pool.readFile(resolvedPath)).length} bytes';
         }, maxSizeBytes: 5 * 1024 * 1024, emptyMessage: 'No small file (< 5 MB)');
       })),
-    TestDef(key: 'streamFile', name: 'Stream File', description: 'Streams a file in chunks.', icon: Icons.stream, params: {'path': '', 'chunkSize': '65536'},
+    TestDef(key: 'streamFile', name: 'Stream File', description: 'Streams a file with progress and cancel support.', icon: Icons.stream, params: {'path': '', 'chunkSize': '65536'},
       run: () => runConnected((pool) async {
         final path = param('streamFile', 'path', '');
         final chunkSize = paramInt('streamFile', 'chunkSize', 65536);
         return _withFirstFile(path, (resolvedPath) async {
-        int total = 0, chunks = 0;
-        await for (final c in pool.streamFile(resolvedPath, chunkSize: chunkSize)) { total += c.length; chunks++; }
-        return '$resolvedPath: $total bytes in $chunks chunks';
+          int total = 0, chunks = 0, lastPct = -1;
+          await for (final c in pool.streamFile(
+            resolvedPath,
+            chunkSize: chunkSize,
+            onProgress: (received, size) {
+              final pct = (received * 100 ~/ size);
+              if (pct != lastPct) lastPct = pct;
+            },
+          )) {
+            total += c.length;
+            chunks++;
+          }
+          return '$resolvedPath: $total bytes in $chunks chunks (reached $lastPct%)';
         }, maxSizeBytes: 5 * 1024 * 1024, emptyMessage: 'No small file (< 5 MB)');
       })),
-    TestDef(key: 'readHandle', name: 'Read Handle', description: 'Opens a handle, reads N bytes, closes.', icon: Icons.open_in_new, params: {'path': '', 'length': '1024'},
+    TestDef(key: 'withFile', name: 'With File (scoped)', description: 'Opens a scoped handle with auto-close and reads a header.', icon: Icons.folder_open, params: {'path': '', 'length': '4096'},
+      run: () => runConnected((pool) async {
+        final path = param('withFile', 'path', '');
+        final length = paramInt('withFile', 'length', 4096);
+        return _withFirstFile(path, (resolvedPath) async {
+          return pool.withFile(resolvedPath, (file) async {
+            final head = await file.read(length: length.clamp(0, file.size));
+            return '$resolvedPath: ${head.length} bytes read (size: ${file.size}, auto-closed)';
+          });
+        });
+      })),
+    TestDef(key: 'downloadToFile', name: 'Download To File', description: 'Downloads an SMB file to a local temp file.', icon: Icons.download, params: {'path': ''},
+      run: () => runConnected((pool) async {
+        final path = param('downloadToFile', 'path', '');
+        return _withFirstFile(path, (resolvedPath) async {
+          final dest = File(
+            '${Directory.systemTemp.path}/dart_smb2_download_${DateTime.now().millisecondsSinceEpoch}.bin',
+          );
+          int lastPct = 0;
+          try {
+            final bytes = await pool.downloadToFile(
+              resolvedPath,
+              dest,
+              onProgress: (received, size) {
+                lastPct = received * 100 ~/ size;
+              },
+            );
+            return 'Wrote $bytes bytes to ${dest.path} (peak $lastPct%)';
+          } finally {
+            if (await dest.exists()) await dest.delete();
+          }
+        }, maxSizeBytes: 5 * 1024 * 1024, emptyMessage: 'No small file (< 5 MB)');
+      })),
+    TestDef(key: 'openFileWithSize', name: 'Open File With Size', description: 'Opens a handle and returns (handle, size) in one round-trip.', icon: Icons.open_with, params: {'path': ''},
+      run: () => runConnected((pool) async {
+        final path = param('openFileWithSize', 'path', '');
+        return _withFirstFile(path, (resolvedPath) async {
+          final (handle, size) = await pool.openFileWithSize(resolvedPath);
+          try {
+            return '$resolvedPath: size=$size bytes, handle opened + closed in 2 RTTs';
+          } finally {
+            await pool.closeHandle(handle);
+          }
+        });
+      })),
+    TestDef(key: 'errorTypes', name: 'Error Classification', description: 'Runs stat / exists / deleteFile on bad paths and reports classified Smb2ErrorType.', icon: Icons.report_problem_outlined, params: {},
+      run: () => runConnected((pool) async {
+        final results = <String>[];
+        final badPath = resolvePath('__dart_smb2_nonexistent_${DateTime.now().millisecondsSinceEpoch}__');
+
+        // stat on missing → expect fileNotFound
+        try {
+          await pool.stat(badPath);
+          results.add('stat: unexpectedly succeeded');
+        } on Smb2Exception catch (e) {
+          results.add('stat(missing) → ${e.type.name} (errno=${e.errorCode})');
+        }
+
+        // exists on missing → expect false (no throw)
+        try {
+          final r = await pool.exists(badPath);
+          results.add('exists(missing) → $r');
+        } on Smb2Exception catch (e) {
+          results.add('exists(missing) THREW → ${e.type.name}');
+        }
+
+        // deleteFile on missing → expect fileNotFound
+        try {
+          await pool.deleteFile(badPath);
+          results.add('deleteFile: unexpectedly succeeded');
+        } on Smb2Exception catch (e) {
+          results.add('deleteFile(missing) → ${e.type.name} (errno=${e.errorCode})');
+        }
+
+        return results.join('\n');
+      })),
+    TestDef(key: 'readHandle', name: 'Read Handle', description: 'Opens a handle, reads N bytes, closes — prefer withFile.', icon: Icons.open_in_new, params: {'path': '', 'length': '1024'},
       run: () => runConnected((pool) async {
         final path = param('readHandle', 'path', '');
         final length = paramInt('readHandle', 'length', 1024);
         return _withFirstFile(path, (resolvedPath) async {
           final (handle, size) = await pool.openFileWithSize(resolvedPath);
-          final head = await pool.readFromHandle(handle, length: size.clamp(0, length));
-          await pool.closeHandle(handle);
-          return '$resolvedPath: ${head.length} bytes via handle (size: $size)';
+          try {
+            final head = await pool.readFromHandle(handle, length: size.clamp(0, length));
+            return '$resolvedPath: ${head.length} bytes via handle (size: $size)';
+          } finally {
+            await pool.closeHandle(handle);
+          }
         });
       })),
     TestDef(key: 'statvfs', name: 'Disk Space', description: 'Queries total and free space.', icon: Icons.storage_outlined, params: {'path': ''},

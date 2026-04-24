@@ -81,12 +81,12 @@ class DiskSpaceBarState extends State<DiskSpaceBar> with AutomaticKeepAliveClien
     if (_error != null && _vfs == null) {
       content = Row(
         children: [
-          Icon(Icons.warning_amber_rounded, size: 14, color: cs.onSurfaceVariant.withOpacity(0.5)),
+          Icon(Icons.warning_amber_rounded, size: 14, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'Disk space unavailable',
-              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withOpacity(0.6)),
+              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -140,8 +140,8 @@ class DiskSpaceBarState extends State<DiskSpaceBar> with AutomaticKeepAliveClien
                         Icons.refresh,
                         size: 14,
                         color: _loading
-                            ? const Color(0xFF0D47A1).withOpacity(0.3)
-                            : const Color(0xFF0D47A1).withOpacity(0.7),
+                            ? const Color(0xFF0D47A1).withValues(alpha: 0.3)
+                            : const Color(0xFF0D47A1).withValues(alpha: 0.7),
                       ),
                     ),
                   ),

@@ -256,7 +256,7 @@ class _ServerEditorPageState extends State<_ServerEditorPage> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: DropdownButtonFormField<Smb2Version>(
-        value: _version,
+        initialValue: _version,
         mouseCursor: SystemMouseCursors.click,
         decoration: const InputDecoration(labelText: 'Protocol version', border: InputBorder.none, isDense: true),
         style: const TextStyle(fontSize: 13, color: Colors.black87),
@@ -574,7 +574,7 @@ class _StatusBadge extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.06),
+          color: color.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(

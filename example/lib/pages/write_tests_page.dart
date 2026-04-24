@@ -187,6 +187,11 @@ class _WriteTestsPageState extends ConsumerState<WriteTestsPage> with SmbTestPag
         messages.addAll(out.info);
         errors.addAll(out.errors);
         break;
+      case 'fsync':
+        final out = await _cleanupFileAndParents(pool, resolvePath(param('fsync', 'path', '$_testDir/fsync.bin')));
+        messages.addAll(out.info);
+        errors.addAll(out.errors);
+        break;
       default:
         return 'Nothing to clean for this test';
     }
@@ -294,6 +299,21 @@ class _WriteTestsPageState extends ConsumerState<WriteTestsPage> with SmbTestPag
         await pool.truncate(path, length);
         final read = await pool.readFile(path);
         return '"${String.fromCharCodes(read)}"';
+      })),
+    TestDef(key: 'fsync', name: 'Fsync Handle', description: 'Writes via a handle and flushes to disk with fsync before close.', icon: Icons.save_alt, params: {'path': '$_testDir/fsync.bin', 'content': 'flush me'},
+      run: () => runConnected((pool) async {
+        final path = resolvePath(param('fsync', 'path', '$_testDir/fsync.bin'));
+        final content = param('fsync', 'content', 'flush me');
+        await _ensureParentDirectory(pool, path);
+        final handle = await pool.openFileWrite(path);
+        try {
+          await pool.writeToHandle(handle, Uint8List.fromList(content.codeUnits), offset: 0);
+          await pool.fsyncHandle(handle);
+        } finally {
+          await pool.closeHandle(handle);
+        }
+        final read = await pool.readFile(path);
+        return 'Wrote "${String.fromCharCodes(read)}", fsync confirmed ${read.length} bytes persisted';
       })),
     TestDef(key: 'ftruncate', name: 'Truncate Handle', description: 'Truncates via an open file handle.', icon: Icons.compress, params: {'path': '$_testDir/truncated.txt', 'content': 'ABCDEFGHIJ', 'length': '3'},
       run: () => runConnected((pool) async {

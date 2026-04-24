@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'dart_smb2'
-  s.version          = '0.0.5'
+  s.version          = '0.0.6'
   s.summary          = 'SMB2/3 client for Dart.'
   s.homepage         = 'https://github.com/ales-drnz/dart_smb2'
   s.license          = { :type => 'BSD-3-Clause' }
@@ -19,8 +19,8 @@ Pod::Spec.new do |s|
   # Runs during `pod install`.
   s.prepare_command = <<-CMD
     set -e
-    RELEASE="libsmb2-r3"
-    EXPECTED_SHA="cf4c3027c8104a12223fd013e0c5f101a49f7a926143b1da29b1bb1bceb58926"
+    RELEASE="libsmb2-r4"
+    EXPECTED_SHA="6b01214862fd4d98dc5bf5ac4a62f01cfe41814485823fd6f121c18c4f47d420"
     DEST="libs/libsmb2.dylib"
 
     if [ -f "$DEST" ]; then

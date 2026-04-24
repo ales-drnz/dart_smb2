@@ -2,6 +2,8 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
+import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'smb2_error_type.dart';
@@ -56,7 +58,10 @@ class CachedSmb2Pool {
         _statDelegate = null,
         _listDirDelegate = null;
 
-  /// Testing constructor that accepts delegate functions instead of a real pool.
+  /// Testing constructor that accepts delegate functions instead of a real
+  /// [Smb2Pool]. Only `stat` / `listDirectory` / `exists` / `invalidate` /
+  /// `clearCache` are usable — every other method requires a real pool and
+  /// throws if called.
   CachedSmb2Pool.withDelegates({
     required Future<Smb2Stat> Function(String) statDelegate,
     required Future<List<Smb2DirEntry>> Function(String) listDirectoryDelegate,
@@ -269,8 +274,39 @@ class CachedSmb2Pool {
   Stream<Uint8List> streamFile(
     String path, {
     int chunkSize = 1024 * 1024,
+    void Function(int received, int total)? onProgress,
+    bool Function()? isCanceled,
   }) =>
-      _pool!.streamFile(path, chunkSize: chunkSize);
+      _pool!.streamFile(
+        path,
+        chunkSize: chunkSize,
+        onProgress: onProgress,
+        isCanceled: isCanceled,
+      );
+
+  /// Download [path] to [destFile] with progress and cancel support.
+  Future<int> downloadToFile(
+    String path,
+    File destFile, {
+    int chunkSize = 1024 * 1024,
+    void Function(int received, int total)? onProgress,
+    bool Function()? isCanceled,
+  }) =>
+      _pool!.downloadToFile(
+        path,
+        destFile,
+        chunkSize: chunkSize,
+        onProgress: onProgress,
+        isCanceled: isCanceled,
+      );
+
+  /// Open [path] for reading and run [body] with a scoped [Smb2File].
+  Future<T> withFile<T>(
+    String path,
+    FutureOr<T> Function(Smb2File file) body, {
+    int? knownSize,
+  }) =>
+      _pool!.withFile(path, body, knownSize: knownSize);
 
   /// Disconnect all workers and release resources.
   ///

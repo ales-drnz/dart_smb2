@@ -3,7 +3,7 @@ import java.net.URL
 import java.security.MessageDigest
 
 group = "com.alesdrnz.dart_smb2"
-version = "0.0.5"
+version = "0.0.6"
 
 buildscript {
     repositories {
@@ -30,6 +30,7 @@ android {
     namespace = "com.alesdrnz.dart_smb2"
 
     compileSdk = 36
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -43,7 +44,7 @@ android {
     }
 
     defaultConfig {
-        minSdk = 21
+        minSdk = 24
 
         // ── dart_smb2 NDK Integration ──────────────────────────────────────
         // Pre-built libsmb2.so files are downloaded from GitHub Releases
@@ -54,7 +55,7 @@ android {
     }
 }
 
-val SMB2_RELEASE_VERSION = "libsmb2-r3"
+val SMB2_RELEASE_VERSION = "libsmb2-r4"
 val SMB2_BASE_URL = "https://github.com/ales-drnz/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}"
 
 val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
@@ -62,11 +63,11 @@ val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
     val abis = mapOf(
         "arm64-v8a" to mapOf(
             "file"   to "libsmb2_android-arm64-v8a.so",
-            "sha256" to "c3957d3c5a82d8443e3d8be4fe8e63b7ae62fba9134939729e3720a7ddfaba4a"
+            "sha256" to "7a78d68e8cb44b5f3ddf8d3fbf0103f826b8df10c675f3a5c90dc8e0f5bc44fc"
         ),
         "x86_64" to mapOf(
             "file"   to "libsmb2_android-x86_64.so",
-            "sha256" to "939800c6b4638841f293416b012fa0e153a480dbfc506b87ecbb4a4fc91a940f"
+            "sha256" to "84732be8fd2bd9d177683f214eb3382bcb1b051a474be398c5dbdf1259ee0113"
         )
     )
 

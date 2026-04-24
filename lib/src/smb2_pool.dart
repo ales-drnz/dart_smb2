@@ -3,6 +3,7 @@
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -171,16 +172,37 @@ class Smb2Pool {
       _sendWithRetry('readlink', {'path': path});
 
   /// Flush all buffered writes on a file handle to the server.
+  ///
+  /// On connection failure, reconnects the worker, reopens the file,
+  /// and retries the flush transparently.
   Future<void> fsyncHandle(Smb2PoolHandle handle) async {
-    await handle._worker.send('fsync', {'handleId': handle._id});
+    try {
+      await handle._worker.send('fsync', {'handleId': handle._id});
+    } on Smb2Exception catch (e) {
+      if (!_isConnectionError(e) || _closed) rethrow;
+      await _reopenWriteHandle(handle);
+      await handle._worker.send('fsync', {'handleId': handle._id});
+    }
   }
 
   /// Truncate an open file handle to [length] bytes.
+  ///
+  /// On connection failure, reconnects the worker, reopens the file,
+  /// and retries the truncate transparently.
   Future<void> ftruncateHandle(Smb2PoolHandle handle, int length) async {
-    await handle._worker.send('ftruncate', {
-      'handleId': handle._id,
-      'length': length,
-    });
+    try {
+      await handle._worker.send('ftruncate', {
+        'handleId': handle._id,
+        'length': length,
+      });
+    } on Smb2Exception catch (e) {
+      if (!_isConnectionError(e) || _closed) rethrow;
+      await _reopenWriteHandle(handle);
+      await handle._worker.send('ftruncate', {
+        'handleId': handle._id,
+        'length': length,
+      });
+    }
   }
 
   /// Check whether a file or directory exists.
@@ -308,6 +330,9 @@ class Smb2Pool {
 
   /// Close an open file handle.
   Future<void> closeHandle(Smb2PoolHandle handle) async {
+    if (handle._closed) return;
+    handle._closed = true;
+    Smb2PoolHandle._finalizer.detach(handle);
     try {
       await handle._worker.send('closeHandle', {'handleId': handle._id});
     } catch (_) {
@@ -366,6 +391,7 @@ class Smb2Pool {
       {'path': handle._path},
     );
     handle._id = newId;
+    handle._refreshFinalizer();
   }
 
   /// Reconnect the worker and reopen the file, updating the handle in-place.
@@ -376,6 +402,7 @@ class Smb2Pool {
       {'path': handle._path},
     );
     handle._id = newId;
+    handle._refreshFinalizer();
   }
 
   /// Write data from a [Stream] to a file without loading everything into RAM.
@@ -409,20 +436,122 @@ class Smb2Pool {
 
   /// Stream a file in chunks without loading everything into RAM.
   ///
-  /// Yields [Uint8List] chunks of up to [chunkSize] bytes.
-  /// The stream completes when the entire file has been read.
+  /// Keeps a single file handle open for the whole read — one `Create`
+  /// on the wire, then [smb2_pread] (splits into server-negotiated
+  /// MaxReadSize packets internally), then one `Close`. The handle is
+  /// released when the stream completes, errors, or is canceled.
+  ///
+  /// - [chunkSize] controls the Dart-side buffer per iteration. The
+  ///   network layer chunks independently into libsmb2's
+  ///   `max_read_size` (typically 1 MiB). Larger [chunkSize] means
+  ///   fewer isolate round-trips and fewer progress callbacks.
+  /// - [onProgress] fires after each chunk with `(received, total)`
+  ///   bytes. `total` is the file size; 0 if unknown.
+  /// - [isCanceled] is polled after each chunk. Returning `true`
+  ///   aborts the stream with an `Smb2Exception('canceled')`.
   Stream<Uint8List> streamFile(
     String path, {
     int chunkSize = 1024 * 1024,
+    void Function(int received, int total)? onProgress,
+    bool Function()? isCanceled,
   }) async* {
-    final size = await fileSize(path);
-    if (size <= 0) return;
-    int offset = 0;
-    while (offset < size) {
-      final toRead = (size - offset).clamp(0, chunkSize);
-      final chunk = await readFileRange(path, offset: offset, length: toRead);
-      yield chunk;
-      offset += toRead;
+    final (handle, size) = await openFileWithSize(path);
+    try {
+      if (size <= 0) return;
+      var offset = 0;
+      while (offset < size) {
+        if (isCanceled?.call() ?? false) {
+          throw const Smb2Exception('Read canceled', null, Smb2ErrorType.unknown);
+        }
+        final remaining = size - offset;
+        final toRead = remaining < chunkSize ? remaining : chunkSize;
+        final chunk = await readFromHandle(
+          handle,
+          offset: offset,
+          length: toRead,
+        );
+        if (chunk.isEmpty) break;
+        offset += chunk.length;
+        onProgress?.call(offset, size);
+        yield chunk;
+      }
+    } finally {
+      await closeHandle(handle);
+    }
+  }
+
+  /// Download [path] to [destFile], writing in chunks via the same
+  /// persistent handle [streamFile] uses.
+  ///
+  /// Returns the number of bytes written. On cancel or error the
+  /// destination file is left as-is — callers that want atomic writes
+  /// should download to a `.part` file and rename on success.
+  Future<int> downloadToFile(
+    String path,
+    File destFile, {
+    int chunkSize = 1024 * 1024,
+    void Function(int received, int total)? onProgress,
+    bool Function()? isCanceled,
+  }) async {
+    final sink = destFile.openWrite();
+    var total = 0;
+    try {
+      await for (final chunk in streamFile(
+        path,
+        chunkSize: chunkSize,
+        onProgress: onProgress,
+        isCanceled: isCanceled,
+      )) {
+        sink.add(chunk);
+        total += chunk.length;
+      }
+    } finally {
+      await sink.close();
+    }
+    return total;
+  }
+
+  /// Open [path] for reading, run [body] with a scoped [Smb2File],
+  /// and guarantee the handle is closed on any exit path.
+  ///
+  /// Preferred over raw [openFileWithSize]/[closeHandle] pairs because
+  /// it composes with exceptions, early returns, and cancellation
+  /// without boilerplate.
+  ///
+  /// Pass [knownSize] when you already have the file size from a prior
+  /// `stat` or directory listing — this uses the cheaper [openFile]
+  /// (no `fstat` round-trip) and populates [Smb2File.size] from the
+  /// argument. Omit it to do one combined `open + fstat`.
+  ///
+  /// ```dart
+  /// final tags = await pool.withFile('Music/song.flac', (file) async {
+  ///   final header = await file.read(length: 64 * 1024);
+  ///   return parseVorbisComments(
+  ///     header,
+  ///     fileSize: file.size,
+  ///     fallbackRead: (o, n) => file.read(offset: o, length: n),
+  ///   );
+  /// });
+  /// ```
+  Future<T> withFile<T>(
+    String path,
+    FutureOr<T> Function(Smb2File file) body, {
+    int? knownSize,
+  }) async {
+    final Smb2PoolHandle handle;
+    final int size;
+    if (knownSize != null) {
+      handle = await openFile(path);
+      size = knownSize;
+    } else {
+      final (h, s) = await openFileWithSize(path);
+      handle = h;
+      size = s;
+    }
+    try {
+      return await body(Smb2File._(this, handle, size));
+    } finally {
+      await closeHandle(handle);
     }
   }
 
@@ -494,12 +623,79 @@ class Smb2Pool {
 
 /// Opaque handle to an open file on a specific worker.
 ///
-/// Use with [Smb2Pool.readFromHandle] and [Smb2Pool.closeHandle].
+/// Use with [Smb2Pool.readFromHandle] and [Smb2Pool.closeHandle], or
+/// prefer [Smb2Pool.withFile] / [Smb2Pool.streamFile] /
+/// [Smb2Pool.downloadToFile] which manage the handle lifecycle for you.
+///
+/// If this object is garbage-collected without [Smb2Pool.closeHandle]
+/// being called, a `closeHandle` command is sent to the worker as a
+/// best-effort safety net. Rely on explicit close (or the scoped
+/// helpers) for deterministic cleanup.
 class Smb2PoolHandle {
   _Worker _worker;
   int _id;
   final String _path;
-  Smb2PoolHandle._(this._worker, this._id, this._path);
+  bool _closed = false;
+
+  Smb2PoolHandle._(this._worker, this._id, this._path) {
+    _finalizer.attach(this, _HandleRef(_worker, _id), detach: this);
+  }
+
+  /// Re-attach the finalizer after a reconnect swapped [_worker] / [_id].
+  /// Without this, a leaked handle would send `closeHandle` to the dead
+  /// original worker and miss the live handle on the reconnected one.
+  void _refreshFinalizer() {
+    if (_closed) return;
+    _finalizer.detach(this);
+    _finalizer.attach(this, _HandleRef(_worker, _id), detach: this);
+  }
+
+  /// Finalizer that best-effort-closes handles leaked by the caller.
+  /// The callback must not reference the enclosing `Smb2PoolHandle` —
+  /// only the captured worker + id are allowed (otherwise the object
+  /// can never become unreachable).
+  static final Finalizer<_HandleRef> _finalizer = Finalizer<_HandleRef>((ref) {
+    try {
+      final port = ReceivePort();
+      ref.worker._sendPort.send({
+        'cmd': 'closeHandle',
+        'handleId': ref.id,
+        'replyTo': port.sendPort,
+      });
+      // Drain and close the reply port so it doesn't linger; we don't
+      // care about the result since the Dart object is already gone.
+      port.first.then((_) => port.close(), onError: (_) => port.close());
+    } catch (_) {
+      // Worker may be dead; best-effort is all we can promise here.
+    }
+  });
+}
+
+/// A captured {worker, handleId} pair the finalizer can close without
+/// holding a reference to the [Smb2PoolHandle] Dart object.
+class _HandleRef {
+  final _Worker worker;
+  final int id;
+  _HandleRef(this.worker, this.id);
+}
+
+/// A file opened inside [Smb2Pool.withFile].
+///
+/// Lives only for the duration of the callback — the underlying
+/// handle is closed automatically when `withFile` returns.
+class Smb2File {
+  final Smb2Pool _pool;
+  final Smb2PoolHandle _handle;
+
+  /// Total file size in bytes, captured at open time.
+  final int size;
+
+  Smb2File._(this._pool, this._handle, this.size);
+
+  /// Read [length] bytes at [offset]. Same semantics as
+  /// [Smb2Pool.readFromHandle] — transparently reconnects on failure.
+  Future<Uint8List> read({int offset = 0, required int length}) =>
+      _pool.readFromHandle(_handle, offset: offset, length: length);
 }
 
 // ─── Connection params ─────────────────────────────────────────────────────
