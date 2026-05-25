@@ -51,6 +51,8 @@ class CachedSmb2Pool {
   final Future<Smb2Stat> Function(String)? _statDelegate;
   final Future<List<Smb2DirEntry>> Function(String)? _listDirDelegate;
 
+  /// Wrap an [Smb2Pool] with a metadata cache. Entries expire after [ttl];
+  /// any pool method not cached here just forwards to the wrapped pool.
   CachedSmb2Pool(
     Smb2Pool pool, {
     this.ttl = const Duration(seconds: 30),

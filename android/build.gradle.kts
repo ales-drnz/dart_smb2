@@ -3,7 +3,7 @@ import java.net.URL
 import java.security.MessageDigest
 
 group = "com.alesdrnz.dart_smb2"
-version = "0.0.7"
+version = "0.0.8"
 
 buildscript {
     repositories {

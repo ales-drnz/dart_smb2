@@ -4,10 +4,15 @@
 
 /// SMB share type constants.
 abstract class Smb2ShareType {
+  /// Disk / folder share — the usual file-serving case.
   static const int diskTree = 0;
+  /// Print-queue share.
   static const int printQueue = 1;
+  /// Communication device share.
   static const int device = 2;
+  /// Inter-process communication share (`IPC$`).
   static const int ipc = 3;
+  /// Hidden-share flag, OR-ed with the base type (e.g. `C$`, `ADMIN$`).
   static const int hidden = 0x80000000;
 }
 
@@ -20,6 +25,7 @@ class Smb2ShareInfo {
   /// The low 2 bits indicate the type, upper bits are flags.
   final int type;
 
+  /// Build a [Smb2ShareInfo] with the raw values returned by the server.
   const Smb2ShareInfo({required this.name, required this.type});
 
   /// The base type (disk, print, device, IPC).
@@ -88,6 +94,7 @@ class Smb2Stat {
   /// Creation (birth) time.
   final DateTime created;
 
+  /// Build a [Smb2Stat]. All fields are required; timestamps are in UTC.
   const Smb2Stat({
     required this.type,
     required this.size,
@@ -117,6 +124,7 @@ class Smb2DirEntry {
   /// Metadata for this entry.
   final Smb2Stat stat;
 
+  /// Build a [Smb2DirEntry] from a name and its pre-fetched [Smb2Stat].
   const Smb2DirEntry({required this.name, required this.stat});
 
   /// True if this entry is a directory.
@@ -152,6 +160,7 @@ class Smb2StatVfs {
   /// Maximum filename length.
   final int maxNameLength;
 
+  /// Build a [Smb2StatVfs] from raw libsmb2 statvfs fields.
   const Smb2StatVfs({
     required this.blockSize,
     required this.fragmentSize,
