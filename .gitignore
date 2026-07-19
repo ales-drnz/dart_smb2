@@ -28,7 +28,6 @@ pubspec.lock
 # AI tooling
 .claude/
 CLAUDE.md
-graphify-out/
 
 # Tests
 test/integration/.env.test

@@ -104,6 +104,7 @@ functions:
     - 'smb2_rmdir'
     - 'smb2_rename'
     - 'smb2_truncate'
+    - 'smb2_utimes'
     - 'smb2_readlink'
     - 'smb2_statvfs'
     - 'smb2_echo'

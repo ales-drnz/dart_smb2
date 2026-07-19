@@ -289,6 +289,23 @@ class Smb2Pool {
   Future<void> truncate(String path, int length) =>
       _sendWithRetry('truncate', {'path': path, 'length': length});
 
+  /// Set the last-modified and/or last-accessed time of a file or directory.
+  ///
+  /// Fields left `null` are not changed on the server. At least one of
+  /// [modified] / [accessed] must be provided. Call this *after* any write
+  /// handle on [path] is closed — servers refresh the modified time on
+  /// write/close, which would overwrite an earlier set.
+  Future<void> setFileTimes(
+    String path, {
+    DateTime? modified,
+    DateTime? accessed,
+  }) =>
+      _sendWithRetry('setFileTimes', {
+        'path': path,
+        'modifiedUs': modified?.microsecondsSinceEpoch,
+        'accessedUs': accessed?.microsecondsSinceEpoch,
+      });
+
   // ─── File handles ──────────────────────────────────────────────────────
 
   /// Open a file for reading and return a handle tied to one worker.

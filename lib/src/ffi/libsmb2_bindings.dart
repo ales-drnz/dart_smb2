@@ -850,6 +850,29 @@ class LibSmb2Bindings {
   late final _smb2_ftruncate = _smb2_ftruncatePtr.asFunction<
       int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>, int)>();
 
+  /// Sync utimes() Function returns 0 : Success -errno : An error occurred.
+  int smb2_utimes(
+    ffi.Pointer<smb2_context> smb2,
+    ffi.Pointer<ffi.Char> path,
+    int atime_us,
+    int mtime_us,
+  ) {
+    return _smb2_utimes(
+      smb2,
+      path,
+      atime_us,
+      mtime_us,
+    );
+  }
+
+  late final _smb2_utimesPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
+              ffi.Uint64, ffi.Uint64)>>('smb2_utimes');
+  late final _smb2_utimes = _smb2_utimesPtr.asFunction<
+      int Function(
+          ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>, int, int)>();
+
   /// Sync readlink()
   int smb2_readlink(
     ffi.Pointer<smb2_context> smb2,

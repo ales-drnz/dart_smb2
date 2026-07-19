@@ -343,5 +343,22 @@ void main() {
       await pool.closeHandle(handle);
       expect(await pool.fileSize(path), 3);
     });
+
+    test('setFileTimes recovers via _sendWithRetry', () async {
+      final pool = await connect();
+      const path = 'reconnect_utimes.bin';
+      addTearDown(() async {
+        try {
+          await pool.deleteFile(path);
+        } catch (_) {}
+        await pool.disconnect();
+      });
+      await pool.writeFile(path, data);
+      final target = DateTime.utc(2016, 8, 9, 10, 11, 12);
+      await failNext(pool);
+      await pool.setFileTimes(path, modified: target);
+      final info = await pool.stat(path);
+      expect(info.modified, target);
+    });
   });
 }

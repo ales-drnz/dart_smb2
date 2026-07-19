@@ -12,7 +12,6 @@ analyzer:
     strict-raw-types: true
   exclude:
     - docs/**
-    - graphify-out/**
 
 linter:
   rules:

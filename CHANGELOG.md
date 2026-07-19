@@ -1,3 +1,12 @@
+## [0.1.1] - 19-07-2026
+
+### Added
+- `setFileTimes(path, {modified, accessed})` on both `Smb2Client` and `Smb2Pool` — set the remote last-modified and/or last-accessed time of a file or directory. Fields left `null` are unchanged on the server. Useful for file manager, backup, and sync apps that preserve local timestamps on upload ([#1](https://github.com/ales-drnz/dart_smb2/issues/1)).
+
+### Build
+- Patched libsmb2 with a new `smb2_utimes` / `smb2_utimes_async` API (compound CREATE + SET_INFO `FILE_BASIC_INFORMATION` + CLOSE, modeled on `smb2_truncate`). Timestamps travel as fixed-width microseconds-since-epoch scalars, so the FFI ABI is identical on every platform including 32-bit Android.
+- Updated binaries to `libsmb2-r6` across all platforms.
+
 ## [0.1.0] - 28-05-2026
 
 ### Changed

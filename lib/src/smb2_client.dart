@@ -765,6 +765,44 @@ class Smb2Client implements Finalizable {
     });
   }
 
+  /// Set the last-modified and/or last-accessed time of a file or directory.
+  ///
+  /// Fields left `null` are not changed on the server. At least one of
+  /// [modified] / [accessed] must be provided. Timestamps are sent with
+  /// microsecond precision; must be after the Unix epoch (SMB encodes
+  /// "leave unchanged" as 0, so the epoch itself is not representable).
+  ///
+  /// Call this *after* the write handle on [path] is closed — servers
+  /// refresh the modified time on write/close, which would overwrite an
+  /// earlier set.
+  ///
+  /// Throws [Smb2Exception] on failure.
+  void setFileTimes(String path, {DateTime? modified, DateTime? accessed}) {
+    _ensureConnected();
+    final mtimeUs = modified?.microsecondsSinceEpoch ?? 0;
+    final atimeUs = accessed?.microsecondsSinceEpoch ?? 0;
+    if (modified == null && accessed == null) {
+      throw const Smb2Exception(
+        'setFileTimes needs at least one of modified/accessed',
+        22,
+        Smb2ErrorType.invalidParam,
+      );
+    }
+    if (mtimeUs < 0 || atimeUs < 0 || (modified != null && mtimeUs == 0) ||
+        (accessed != null && atimeUs == 0)) {
+      throw const Smb2Exception(
+        'setFileTimes timestamps must be after the Unix epoch',
+        22,
+        Smb2ErrorType.invalidParam,
+      );
+    }
+    using((arena) {
+      final rc =
+          _native.smb2_utimes(_ctx, _path(path, arena), atimeUs, mtimeUs);
+      if (rc < 0) throw _makeError(_native, _ctx, 'Set file times failed');
+    });
+  }
+
   // ─── Helpers ────────────────────────────────────────────────────────────
 
   void _ensureConnected() {

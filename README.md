@@ -25,7 +25,7 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.1.0
+  dart_smb2: ^0.1.1
 ```
 
 ---
@@ -110,6 +110,7 @@ dependencies:
     * [7.3 Delete Directory](#73-delete-directory)
     * [7.4 Rename / Move](#74-rename--move)
     * [7.5 Truncate](#75-truncate)
+    * [7.6 Set File Times](#76-set-file-times)
 
     </details>
 
@@ -169,7 +170,7 @@ The following images demonstrate the example app included in the `example/` dire
 </tr>
 <tr>
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/folder.png" width="32"></td>
-<td valign="middle"><b>File & directory ops</b><br><code>listDirectory</code>, <code>stat</code>, <code>exists</code>, <code>mkdir</code>, <code>rmdir</code>, <code>rename</code>, <code>deleteFile</code>, <code>truncate</code> and symlink resolution.</td>
+<td valign="middle"><b>File & directory ops</b><br><code>listDirectory</code>, <code>stat</code>, <code>exists</code>, <code>mkdir</code>, <code>rmdir</code>, <code>rename</code>, <code>deleteFile</code>, <code>truncate</code>, <code>setFileTimes</code> and symlink resolution.</td>
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/download.png" width="32"></td>
 <td valign="middle"><b>Streaming reads & writes</b><br>chunked I/O via sync <code>Iterable</code> or async <code>Stream</code>, with <code>onProgress</code> + <code>isCanceled</code> callbacks and a single persistent handle.</td>
 </tr>
@@ -828,6 +829,24 @@ client.truncate('Documents/logfile.txt', 0); // empty the file
 // Async
 await pool.truncate('Documents/logfile.txt', 1024); // keep first 1 KB
 ```
+
+#### 7.6 Set File Times
+
+Sets the remote last-modified and/or last-accessed time of a file or directory — useful for file manager, backup, and sync apps that preserve local timestamps on upload. Fields left `null` are not changed on the server.
+
+```dart
+// Sync
+client.setFileTimes('Documents/report.pdf', modified: localFile.lastModifiedSync());
+
+// Async
+await pool.setFileTimes(
+  'Documents/report.pdf',
+  modified: DateTime.utc(2020, 5, 17, 10, 30),
+  accessed: DateTime.now(),
+);
+```
+
+> **Note:** call this *after* the write handle on the path is closed — SMB servers refresh the modified time on write/close, which would overwrite an earlier set.
 
 ---
 

@@ -53,6 +53,7 @@ void main() {
         '$testDir/renamed.txt',
         '$testDir/truncated.txt',
         '$testDir/to_delete.txt',
+        '$testDir/utimes.txt',
       ]) {
         try {
           client.deleteFile(name);
@@ -219,6 +220,88 @@ void main() {
         ),
       );
     });
+
+    test('setFileTimes sets remote modified time', () {
+      client.writeFile(
+        '$testDir/utimes.txt',
+        Uint8List.fromList('mtime'.codeUnits),
+      );
+      final target = DateTime.utc(2020, 5, 17, 10, 30, 12);
+      client.setFileTimes('$testDir/utimes.txt', modified: target);
+
+      final st = client.stat('$testDir/utimes.txt');
+      expect(st.modified, equals(target));
+    });
+
+    test('setFileTimes with modified + accessed round-trips mtime', () {
+      client.writeFile(
+        '$testDir/utimes.txt',
+        Uint8List.fromList('both'.codeUnits),
+      );
+      final mtime = DateTime.utc(2019, 1, 2, 3, 4, 5);
+      final atime = DateTime.utc(2021, 6, 7, 8, 9, 10);
+      client.setFileTimes(
+        '$testDir/utimes.txt',
+        modified: mtime,
+        accessed: atime,
+      );
+
+      final st = client.stat('$testDir/utimes.txt');
+      expect(st.modified, equals(mtime));
+    });
+
+    test('setFileTimes works on a directory', () {
+      final target = DateTime.utc(2018, 11, 22, 12);
+      client.setFileTimes(testDir, modified: target);
+
+      final st = client.stat(testDir);
+      expect(st.modified, equals(target));
+    });
+
+    test('setFileTimes with no timestamps throws invalidParam', () {
+      expect(
+        () => client.setFileTimes('$testDir/write_test.txt'),
+        throwsA(
+          isA<Smb2Exception>().having(
+            (e) => e.type,
+            'type',
+            Smb2ErrorType.invalidParam,
+          ),
+        ),
+      );
+    });
+
+    test('setFileTimes with pre-epoch timestamp throws invalidParam', () {
+      expect(
+        () => client.setFileTimes(
+          '$testDir/write_test.txt',
+          modified: DateTime.utc(1960),
+        ),
+        throwsA(
+          isA<Smb2Exception>().having(
+            (e) => e.type,
+            'type',
+            Smb2ErrorType.invalidParam,
+          ),
+        ),
+      );
+    });
+
+    test('setFileTimes on missing file throws fileNotFound', () {
+      expect(
+        () => client.setFileTimes(
+          '$testDir/no_such_file_98765',
+          modified: DateTime.utc(2020),
+        ),
+        throwsA(
+          isA<Smb2Exception>().having(
+            (e) => e.type,
+            'type',
+            Smb2ErrorType.fileNotFound,
+          ),
+        ),
+      );
+    });
   });
 
   // ─── Smb2Pool (async) ──────────────────────────────────────────────────
@@ -252,6 +335,7 @@ void main() {
         '$testDir/pool_delete.txt',
         '$testDir/pool_renamed.txt',
         '$testDir/pool_truncate.txt',
+        '$testDir/pool_utimes.txt',
       ]) {
         try {
           await pool.deleteFile(name);
@@ -363,6 +447,18 @@ void main() {
       expect(String.fromCharCodes(read), equals('ABC'));
     });
 
+    test('setFileTimes sets remote modified time', () async {
+      await pool.writeFile(
+        '$testDir/pool_utimes.txt',
+        Uint8List.fromList('pool mtime'.codeUnits),
+      );
+      final target = DateTime.utc(2017, 3, 4, 5, 6, 7);
+      await pool.setFileTimes('$testDir/pool_utimes.txt', modified: target);
+
+      final st = await pool.stat('$testDir/pool_utimes.txt');
+      expect(st.modified, equals(target));
+    });
+
     test('concurrent writes from multiple workers', () async {
       final futures = List.generate(8, (i) {
         final data = Uint8List.fromList('Data from request $i'.codeUnits);
@@ -458,6 +554,16 @@ void main() {
     test('rename rejects NUL in newPath', () {
       expect(
         () => client.rename('good', 'foo\u0000bar'),
+        throwsA(isA<Smb2Exception>()),
+      );
+    });
+
+    test('setFileTimes rejects NUL in path', () {
+      expect(
+        () => client.setFileTimes(
+          'foo\u0000bar',
+          modified: DateTime.utc(2020),
+        ),
         throwsA(isA<Smb2Exception>()),
       );
     });

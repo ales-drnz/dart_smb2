@@ -200,6 +200,19 @@ void workerMain(InitMsg init) {
         case 'truncate':
           client.truncate(msg['path'] as String, msg['length'] as int);
           replyTo?.send(true);
+        case 'setFileTimes':
+          final modifiedUs = msg['modifiedUs'] as int?;
+          final accessedUs = msg['accessedUs'] as int?;
+          client.setFileTimes(
+            msg['path'] as String,
+            modified: modifiedUs == null
+                ? null
+                : DateTime.fromMicrosecondsSinceEpoch(modifiedUs, isUtc: true),
+            accessed: accessedUs == null
+                ? null
+                : DateTime.fromMicrosecondsSinceEpoch(accessedUs, isUtc: true),
+          );
+          replyTo?.send(true);
 
         // ── File handle commands ──────────────────────────────────────
         case 'openFile':
