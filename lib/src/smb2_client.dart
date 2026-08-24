@@ -145,20 +145,23 @@ class Smb2Client implements Finalizable {
         }
 
         try {
-          // Anonymous unions in C are wrapped by ffigen as an extra
-          // synthetic `unnamed` field. The path is:
-          //   rep.ses.ShareInfo.unnamed.Level1.{EntriesRead, Buffer}
-          //   Buffer.share_info_1 → array of SHARE_INFO_1
-          final container = rep.ref.ses.ShareInfo.unnamed.Level1;
+          // The reply tree is:
+          //   rep.ses.ShareEnum.Level1.{EntriesRead, share_info_1}
+          //   share_info_1 → array of SHARE_INFO_1
+          // `ShareEnum` is a named union here, so there is no synthetic
+          // `unnamed` hop, the container points straight at the array, and
+          // `netname` is already a NUL-terminated UTF-8 string.
+          final container = rep.ref.ses.ShareEnum.Level1;
           final count = container.EntriesRead;
-          final buffer = container.Buffer;
-          if (count == 0 || buffer == nullptr) return const <Smb2ShareInfo>[];
+          final infosBase = container.share_info_1;
+          if (count == 0 || infosBase == nullptr) {
+            return const <Smb2ShareInfo>[];
+          }
 
-          final infosBase = buffer.ref.share_info_1;
           final results = <Smb2ShareInfo>[];
           for (var i = 0; i < count; i++) {
             final info = (infosBase + i).ref;
-            final namePtr = info.netname.utf8;
+            final namePtr = info.netname;
             final name =
                 namePtr == nullptr ? '' : namePtr.cast<Utf8>().toDartString();
             results.add(Smb2ShareInfo(name: name, type: info.type));

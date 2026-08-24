@@ -26,8 +26,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "libsmb2",
-            url: "https://github.com/ales-drnz/dart_smb2/releases/download/libsmb2-r6/libsmb2_macos.xcframework.zip",
-            checksum: "d87624672afe594366470e71c726a14bb0af661262f628f0e4c3428f0b3ac15f"
+            url: "https://github.com/ales-drnz/dart_smb2/releases/download/libsmb2-r7/libsmb2_macos.xcframework.zip",
+            checksum: "97feb9667c80a16840518a7d13749cb9b3c2feb5e306fbacb1203b617eea798e"
         ),
     ]
 )

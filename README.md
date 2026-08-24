@@ -25,7 +25,7 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.1.1
+  dart_smb2: ^0.1.2
 ```
 
 ---

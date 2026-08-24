@@ -211,8 +211,7 @@ class LibSmb2Bindings {
   late final _smb2_set_security_mode = _smb2_set_security_modePtr
       .asFunction<void Function(ffi.Pointer<smb2_context>, int)>();
 
-  /// Set whether smb3 encryption should be used or not. 0 : disable encryption.
-  /// This is the default. !0 : enable encryption.
+  /// Set whether smb3 encryption should be used or not.
   void smb2_set_seal(
     ffi.Pointer<smb2_context> smb2,
     int val,
@@ -911,16 +910,6 @@ class LibSmb2Bindings {
   late final _smb2_echo =
       _smb2_echoPtr.asFunction<int Function(ffi.Pointer<smb2_context>)>();
 
-  late final ffi.Pointer<p_syntax_id_t> _lsa_interface =
-      _lookup<p_syntax_id_t>('lsa_interface');
-
-  p_syntax_id_t get lsa_interface => _lsa_interface.ref;
-
-  late final ffi.Pointer<p_syntax_id_t> _srvsvc_interface =
-      _lookup<p_syntax_id_t>('srvsvc_interface');
-
-  p_syntax_id_t get srvsvc_interface => _srvsvc_interface.ref;
-
   /// Sync share_enum() This function only works when connected to the IPC$
   /// share.
   ffi.Pointer<srvsvc_NetrShareEnum_rep> smb2_share_enum_sync(
@@ -1121,7 +1110,7 @@ final class smb2_lease_break_reply extends ffi.Struct {
   external int lease_duration;
 }
 
-final class UnnamedUnion$1 extends ffi.Union {
+final class UnnamedUnion extends ffi.Union {
   external smb2_oplock_break_notification oplock;
 
   external smb2_oplock_break_reply oplockrep;
@@ -1140,7 +1129,7 @@ final class smb2_oplock_or_lease_break_reply extends ffi.Struct {
   @ffi.Int()
   external int break_type;
 
-  external UnnamedUnion$1 lock;
+  external UnnamedUnion lock;
 }
 
 typedef smb2_command_cbFunction = ffi.Void Function(
@@ -1350,113 +1339,11 @@ enum smb2_sec {
 /// OPENDIR
 final class smb2dir extends ffi.Opaque {}
 
-/// SMB's UTF-16 is always in Little Endian
-final class smb2_utf16 extends ffi.Struct {
-  @ffi.Int()
-  external int len;
-
-  @ffi.Array.multi([1])
-  external ffi.Array<ffi.Uint16> val;
-}
-
-final class dcerpc_context extends ffi.Opaque {}
-
-final class dcerpc_pdu extends ffi.Opaque {}
-
-typedef dcerpc_coderFunction = ffi.Int Function(
-    ffi.Pointer<dcerpc_context> dce,
-    ffi.Pointer<dcerpc_pdu> pdu,
-    ffi.Pointer<smb2_iovec> iov,
-    ffi.Pointer<ffi.Int> offset,
-    ffi.Pointer<ffi.Void> ptr);
-typedef Dartdcerpc_coderFunction = int Function(
-    ffi.Pointer<dcerpc_context> dce,
-    ffi.Pointer<dcerpc_pdu> pdu,
-    ffi.Pointer<smb2_iovec> iov,
-    ffi.Pointer<ffi.Int> offset,
-    ffi.Pointer<ffi.Void> ptr);
-
-/// Encoder/Decoder for a DCERPC object
-typedef dcerpc_coder = ffi.Pointer<ffi.NativeFunction<dcerpc_coderFunction>>;
-
-enum ptr_type {
-  PTR_REF(0),
-  PTR_UNIQUE(1),
-  PTR_FULL(2);
-
-  final int value;
-  const ptr_type(this.value);
-
-  static ptr_type fromValue(int value) => switch (value) {
-        0 => PTR_REF,
-        1 => PTR_UNIQUE,
-        2 => PTR_FULL,
-        _ => throw ArgumentError('Unknown value for ptr_type: $value'),
-      };
-}
-
-final class dcerpc_uuid extends ffi.Struct {
-  @ffi.Uint32()
-  external int v1;
-
-  @ffi.Uint16()
-  external int v2;
-
-  @ffi.Uint16()
-  external int v3;
-
-  @ffi.Array.multi([8])
-  external ffi.Array<ffi.Uint8> v4;
-}
-
-typedef dcerpc_uuid_t = dcerpc_uuid;
-
-final class p_syntax_id extends ffi.Struct {
-  external dcerpc_uuid_t uuid;
-
-  @ffi.Uint16()
-  external int vers;
-
-  @ffi.Uint16()
-  external int vers_minor;
-}
-
-typedef p_syntax_id_t = p_syntax_id;
-
-final class dcerpc_utf16 extends ffi.Struct {
-  /// internal use only
-  @ffi.Uint32()
-  external int max_count;
-
-  /// internal use only
-  @ffi.Uint32()
-  external int offset;
-
-  /// internal use only
-  @ffi.Uint32()
-  external int actual_count;
-
-  /// internal use only
-  external ffi.Pointer<smb2_utf16> utf16;
-
-  external ffi.Pointer<ffi.Char> utf8;
-}
-
-typedef dcerpc_cbFunction = ffi.Void Function(
-    ffi.Pointer<dcerpc_context> dce,
-    ffi.Int status,
-    ffi.Pointer<ffi.Void> command_data,
-    ffi.Pointer<ffi.Void> cb_data);
-typedef Dartdcerpc_cbFunction = void Function(
-    ffi.Pointer<dcerpc_context> dce,
-    int status,
-    ffi.Pointer<ffi.Void> command_data,
-    ffi.Pointer<ffi.Void> cb_data);
-typedef dcerpc_cb = ffi.Pointer<ffi.NativeFunction<dcerpc_cbFunction>>;
-
 enum SHARE_INFO_enum {
   SHARE_INFO_0(0),
-  SHARE_INFO_1(1);
+  SHARE_INFO_1(1),
+  SHARE_INFO_2(2),
+  SHARE_INFO_502(502);
 
   final int value;
   const SHARE_INFO_enum(this.value);
@@ -1464,75 +1351,96 @@ enum SHARE_INFO_enum {
   static SHARE_INFO_enum fromValue(int value) => switch (value) {
         0 => SHARE_INFO_0,
         1 => SHARE_INFO_1,
+        2 => SHARE_INFO_2,
+        502 => SHARE_INFO_502,
         _ => throw ArgumentError('Unknown value for SHARE_INFO_enum: $value'),
       };
 }
 
 final class srvsvc_SHARE_INFO_0 extends ffi.Struct {
-  external dcerpc_utf16 netname;
-}
-
-final class srvsvc_SHARE_INFO_0_carray extends ffi.Struct {
-  @ffi.Uint32()
-  external int max_count;
-
-  external ffi.Pointer<srvsvc_SHARE_INFO_0> share_info_0;
+  external ffi.Pointer<ffi.Char> netname;
 }
 
 final class srvsvc_SHARE_INFO_0_CONTAINER extends ffi.Struct {
   @ffi.Uint32()
   external int EntriesRead;
 
-  external ffi.Pointer<srvsvc_SHARE_INFO_0_carray> Buffer;
+  external ffi.Pointer<srvsvc_SHARE_INFO_0> share_info_0;
 }
 
 final class srvsvc_SHARE_INFO_1 extends ffi.Struct {
-  external dcerpc_utf16 netname;
+  external ffi.Pointer<ffi.Char> netname;
 
   @ffi.Uint32()
   external int type;
 
-  external dcerpc_utf16 remark;
-}
-
-final class srvsvc_SHARE_INFO_1_carray extends ffi.Struct {
-  @ffi.Uint32()
-  external int max_count;
-
-  external ffi.Pointer<srvsvc_SHARE_INFO_1> share_info_1;
+  external ffi.Pointer<ffi.Char> remark;
 }
 
 final class srvsvc_SHARE_INFO_1_CONTAINER extends ffi.Struct {
   @ffi.Uint32()
   external int EntriesRead;
 
-  external ffi.Pointer<srvsvc_SHARE_INFO_1_carray> Buffer;
+  external ffi.Pointer<srvsvc_SHARE_INFO_1> share_info_1;
 }
 
-final class UnnamedUnion extends ffi.Union {
+final class srvsvc_SHARE_INFO_2 extends ffi.Struct {
+  external ffi.Pointer<ffi.Char> netname;
+
+  @ffi.Uint32()
+  external int type;
+
+  external ffi.Pointer<ffi.Char> remark;
+
+  @ffi.Uint32()
+  external int permissions;
+
+  @ffi.Uint32()
+  external int max_users;
+
+  @ffi.Uint32()
+  external int current_users;
+
+  external ffi.Pointer<ffi.Char> path;
+
+  external ffi.Pointer<ffi.Char> passwd;
+}
+
+final class srvsvc_SHARE_INFO_2_CONTAINER extends ffi.Struct {
+  @ffi.Uint32()
+  external int EntriesRead;
+
+  external ffi.Pointer<srvsvc_SHARE_INFO_2> share_info_2;
+}
+
+/// Incomplete unless dcerpc/dcerpc-srvsvc.h (libdcerpc) is also included.
+final class srvsvc_SHARE_INFO_502 extends ffi.Opaque {}
+
+final class srvsvc_SHARE_INFO_502_CONTAINER extends ffi.Struct {
+  @ffi.Uint32()
+  external int EntriesRead;
+
+  external ffi.Pointer<srvsvc_SHARE_INFO_502> share_info_502;
+}
+
+final class srvsvc_SHARE_ENUM_UNION extends ffi.Union {
   external srvsvc_SHARE_INFO_0_CONTAINER Level0;
 
   external srvsvc_SHARE_INFO_1_CONTAINER Level1;
-}
 
-final class srvsvc_SHARE_ENUM_UNION extends ffi.Struct {
-  @ffi.Uint32()
-  external int Level;
+  external srvsvc_SHARE_INFO_2_CONTAINER Level2;
 
-  external UnnamedUnion unnamed;
+  external srvsvc_SHARE_INFO_502_CONTAINER Level502;
 }
 
 final class srvsvc_SHARE_ENUM_STRUCT extends ffi.Struct {
   @ffi.Uint32()
   external int Level;
 
-  external srvsvc_SHARE_ENUM_UNION ShareInfo;
+  external srvsvc_SHARE_ENUM_UNION ShareEnum;
 }
 
 final class srvsvc_NetrShareEnum_rep extends ffi.Struct {
-  @ffi.Uint32()
-  external int status;
-
   external srvsvc_SHARE_ENUM_STRUCT ses;
 
   @ffi.Uint32()
@@ -1540,6 +1448,9 @@ final class srvsvc_NetrShareEnum_rep extends ffi.Struct {
 
   @ffi.Uint32()
   external int resume_handle;
+
+  @ffi.Uint32()
+  external int status;
 }
 
 const int SMB2_TYPE_FILE = 0;
@@ -1554,14 +1465,14 @@ const int LIBSMB2_MINOR_VERSION = 0;
 
 const int LIBSMB2_PATCH_VERSION = 0;
 
-const int SHARE_TYPE_DISKTREE = 0;
+const int SRVSVC_SHARE_TYPE_DISKTREE = 0;
 
-const int SHARE_TYPE_PRINTQ = 1;
+const int SRVSVC_SHARE_TYPE_PRINTQ = 1;
 
-const int SHARE_TYPE_DEVICE = 2;
+const int SRVSVC_SHARE_TYPE_DEVICE = 2;
 
-const int SHARE_TYPE_IPC = 3;
+const int SRVSVC_SHARE_TYPE_IPC = 3;
 
-const int SHARE_TYPE_TEMPORARY = 1073741824;
+const int SRVSVC_SHARE_TYPE_TEMPORARY = 1073741824;
 
-const int SHARE_TYPE_HIDDEN = 2147483648;
+const int SRVSVC_SHARE_TYPE_HIDDEN = 2147483648;

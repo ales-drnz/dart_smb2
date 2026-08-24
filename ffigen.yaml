@@ -4,36 +4,37 @@ description: |
   Do not edit by hand.
 output: 'lib/src/ffi/libsmb2_bindings.dart'
 
-# Headers we parse. We point at the source checkout shipped via the sibling
-# `libsmb2-scripts` repo; the prebuilt binaries in macos/ios/android/linux/
-# windows/ are built from the same submodule pin, so headers and ABI stay in
-# sync.
+# Headers we parse. We point at the PATCHED tree exported by the sibling
+# `libsmb2-scripts` repo (`./build sources` -> sources/libsmb2-src). It must
+# be the patched tree, not raw upstream: patch_utimes.py adds smb2_utimes /
+# smb2_utimes_async to libsmb2.h. The prebuilt binaries in macos/ios/android/
+# linux/windows/ come from the same pin + patches, so headers and ABI stay in
+# sync. Re-export and regenerate after every libsmb2 bump.
 headers:
   entry-points:
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/libsmb2.h'
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/smb2.h'
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/smb2-errors.h'
-    # DCE/RPC + srvsvc are needed for `smb2_share_enum_sync` and its
-    # return-type tree (`srvsvc_NetrShareEnum_rep` → `…_CONTAINER` →
-    # `…_carray` → `SHARE_INFO_1` → `dcerpc_utf16`).
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/libsmb2-dcerpc.h'
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/libsmb2-dcerpc-srvsvc.h'
+    - '../libsmb2-scripts/sources/libsmb2-src/include/smb2/libsmb2.h'
+    - '../libsmb2-scripts/sources/libsmb2-src/include/smb2/smb2.h'
+    - '../libsmb2-scripts/sources/libsmb2-src/include/smb2/smb2-errors.h'
+    # `smb2_share_enum_sync` and its return-type tree
+    # (`srvsvc_NetrShareEnum_rep` → `SHARE_ENUM_STRUCT` → `…_CONTAINER` →
+    # `SHARE_INFO_1`). Upstream moved these out of the old
+    # libsmb2-dcerpc*.h headers into a dedicated minimal one.
+    - '../libsmb2-scripts/sources/libsmb2-src/include/smb2/libsmb2-share-enum.h'
     # libsmb2-raw.h declares `smb2_free_data` — used to release the
     # response tree returned by `smb2_share_enum_sync`.
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/libsmb2-raw.h'
+    - '../libsmb2-scripts/sources/libsmb2-src/include/smb2/libsmb2-raw.h'
   include-directives:
     # Restrict generation to public smb2 headers. Without this, transitive
     # includes (stdint.h, etc.) pollute the output.
     - '**/smb2/libsmb2.h'
     - '**/smb2/smb2.h'
     - '**/smb2/smb2-errors.h'
-    - '**/smb2/libsmb2-dcerpc.h'
-    - '**/smb2/libsmb2-dcerpc-srvsvc.h'
+    - '**/smb2/libsmb2-share-enum.h'
     - '**/smb2/libsmb2-raw.h'
 
 compiler-opts:
   # Sibling repo's private headers (config.h, portable-endian.h).
-  - '-I../libsmb2-scripts/scripts/src/libsmb2/include'
+  - '-I../libsmb2-scripts/sources/libsmb2-src/include'
   # libsmb2 headers use uint8_t / uint64_t / size_t / time_t without
   # including <stdint.h> directly — force-include the standard fixed-width
   # integer + size headers so clang resolves them.
@@ -46,12 +47,12 @@ compiler-opts:
   # libsmb2.h references SMB2_GUID_SIZE and smb2_lease_key from smb2.h
   # without including it itself — force-include smb2.h before libsmb2.h.
   - '-include'
-  - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/smb2.h'
-  # libsmb2-dcerpc-srvsvc.h references smb2_command_cb declared in
+  - '../libsmb2-scripts/sources/libsmb2-src/include/smb2/smb2.h'
+  # libsmb2-share-enum.h references smb2_command_cb declared in
   # libsmb2.h. Force-include libsmb2.h so the typedef is visible during
-  # parsing of the srvsvc header.
+  # parsing of the share-enum header.
   - '-include'
-  - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/libsmb2.h'
+  - '../libsmb2-scripts/sources/libsmb2-src/include/smb2/libsmb2.h'
   - '-D_GNU_SOURCE=1'
 
 # Only emit what we need. Phase B/C/D will extend this list. Keeping the
@@ -133,13 +134,12 @@ structs:
     - 'smb2fh'                 # opaque
     - 'smb2_libversion'
     - 'smb2_iovec'
-    # DCE/RPC + srvsvc tree returned by smb2_share_enum_sync.
-    - 'dcerpc_utf16'
+    # srvsvc tree returned by smb2_share_enum_sync. No carray / dcerpc_utf16
+    # here: the container holds a direct SHARE_INFO_1* and netname is char*.
     - 'srvsvc_NetrShareEnum_rep'
     - 'srvsvc_SHARE_ENUM_STRUCT'
     - 'srvsvc_SHARE_ENUM_UNION'
     - 'srvsvc_SHARE_INFO_1'
-    - 'srvsvc_SHARE_INFO_1_carray'
     - 'srvsvc_SHARE_INFO_1_CONTAINER'
   rename:
     # libsmb2.h declares both `struct smb2_statvfs` and `int smb2_statvfs(...)`.
@@ -167,12 +167,12 @@ macros:
     - 'O_APPEND'
     - 'O_EXCL'
     # Share-type bits used by srvsvc_SHARE_INFO_1.type.
-    - 'SHARE_TYPE_DISKTREE'
-    - 'SHARE_TYPE_PRINTQ'
-    - 'SHARE_TYPE_DEVICE'
-    - 'SHARE_TYPE_IPC'
-    - 'SHARE_TYPE_TEMPORARY'
-    - 'SHARE_TYPE_HIDDEN'
+    - 'SRVSVC_SHARE_TYPE_DISKTREE'
+    - 'SRVSVC_SHARE_TYPE_PRINTQ'
+    - 'SRVSVC_SHARE_TYPE_DEVICE'
+    - 'SRVSVC_SHARE_TYPE_IPC'
+    - 'SRVSVC_SHARE_TYPE_TEMPORARY'
+    - 'SRVSVC_SHARE_TYPE_HIDDEN'
 
 # Class-based bindings: ffigen emits `class LibSmb2Bindings` whose
 # constructor takes a `DynamicLibrary`. This matches the existing pattern

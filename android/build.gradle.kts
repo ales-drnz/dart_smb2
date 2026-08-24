@@ -3,7 +3,7 @@ import java.net.URL
 import java.security.MessageDigest
 
 group = "com.alesdrnz.dart_smb2"
-version = "0.1.1"
+version = "0.1.2"
 
 buildscript {
     repositories {
@@ -55,7 +55,7 @@ android {
     }
 }
 
-val SMB2_RELEASE_VERSION = "libsmb2-r6"
+val SMB2_RELEASE_VERSION = "libsmb2-r7"
 val SMB2_BASE_URL = "https://github.com/ales-drnz/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}"
 
 val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
@@ -63,15 +63,15 @@ val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
     val abis = mapOf(
         "arm64-v8a" to mapOf(
             "file"   to "libsmb2_android-arm64-v8a.so",
-            "sha256" to "dab660afab1958f2fe5f8c2a3d857ee54bf660bdd13e5823b762006e85318e8e"
+            "sha256" to "bca1be888c4b805f3a9b1e1a97dfea0ae0e7136f9ba231ddab20d7b80a0e4dd5"
         ),
         "armeabi-v7a" to mapOf(
             "file"   to "libsmb2_android-armeabi-v7a.so",
-            "sha256" to "16765a1f89b9c93cb624433964031b607c236bc028868ea313852f9172aaee82"
+            "sha256" to "748bd41735839531acc4caaea86f29bea9331e960e21252fe96664db82faed48"
         ),
         "x86_64" to mapOf(
             "file"   to "libsmb2_android-x86_64.so",
-            "sha256" to "168fc1b11d8ed14e7fdcfb428b0140e453bb99d20abd754bfa237c74c6ea3964"
+            "sha256" to "6109e825a4799c1006f934a4ae07a3a01878157103b036d68e79f0188fb1c779"
         )
     )
 

@@ -1,3 +1,14 @@
+## [0.1.2] - 24-08-2026
+
+### Security
+- Windows now draws the NTLMv2 client challenge, the SMB 3.1.1 preauth salt and the AES-CCM nonce from the system CSPRNG (CNG `BCryptGenRandom`) instead of `rand()`.
+
+### Build
+- Rebased the bundled libsmb2 to upstream master 2026-08-14, picking up the August 2026 security hardening series.
+- Share enumeration now uses upstream's rewritten minimal DCE/RPC; the previous code's unaligned accesses were the prime suspect for the arm32 crash in [#2](https://github.com/ales-drnz/dart_smb2/issues/2).
+- Updated binaries to `libsmb2-r7` across all platforms and regenerated the ffigen bindings against the r7 headers.
+- The [`libsmb2-scripts`](https://github.com/ales-drnz/libsmb2-scripts) build infrastructure is now public and patch-based — the corresponding source for the LGPL-2.1 libsmb2 binaries ([#2](https://github.com/ales-drnz/dart_smb2/issues/2)).
+
 ## [0.1.1] - 19-07-2026
 
 ### Added
