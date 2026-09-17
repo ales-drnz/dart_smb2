@@ -6,12 +6,12 @@ Spins up a real Samba 4 server in Docker and exercises the full `Smb2Client` + `
 
 - **Docker Desktop** (or any Docker engine).
 - **macOS / Linux** dev host. The bootstrap script picks the right native libsmb2 binary from the platform-specific bundle.
-- **Native libsmb2 binary** present on disk. Run once after a fresh clone:
+- **Native libsmb2 binary** present on disk. Run once after a fresh clone (from the dart_smb2 repo root):
   ```bash
-  cd ../../../libsmb2-scripts
-  make checksums
+  cd ../libsmb2-scripts
+  ./build lib-local
   ```
-  This pulls (or extracts) `libsmb2.framework` / `libsmb2.so` into the dart_smb2 platform folders.
+  This installs the built `libsmb2.xcframework` / `libsmb2.so` into the dart_smb2 platform folders and switches the package to local libs. Run `./build lib-remote` before committing.
 
 ## First-time setup
 

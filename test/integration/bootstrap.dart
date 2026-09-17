@@ -9,7 +9,7 @@
 ///   2. Brings up the Samba container with `docker compose up -d --wait`.
 ///   3. Resolves the path to the libsmb2 dynamic library for the current
 ///      host (macOS or Linux). The `.dylib` / `.so` must already exist —
-///      run `cd ../../../libsmb2-scripts && make checksums` once after a
+///      run `cd ../libsmb2-scripts && ./build lib-local` once after a
 ///      fresh clone.
 ///   4. Connects via `Smb2Pool` and seeds a known test file on the share.
 ///   5. Persists the configuration to `.bootstrap-cache.json` so test files
@@ -50,6 +50,10 @@ Future<void> main() async {
   final password = env['SMB2_PASS'] ?? 'testpass';
 
   // ── Docker up ──────────────────────────────────────────────────────────
+  // Create the bind-mounted share dir ourselves: on Linux a missing host
+  // path is created by the Docker daemon as root, and the container's
+  // testuser (uid 1000) then gets STATUS_ACCESS_DENIED on every write.
+  Directory('$_integrationDir/volumes/share').createSync(recursive: true);
   await _runOrDie(
     ['docker', 'compose', '--env-file', '.env.test', 'up', '-d', '--wait'],
     workingDir: _integrationDir,
@@ -161,7 +165,7 @@ String _resolveLibPath() {
   if (candidate != null && File(candidate).existsSync()) return candidate;
 
   stderr.writeln(
-    'Could not locate libsmb2 native binary. Run `make checksums` from '
+    'Could not locate libsmb2 native binary. Run `./build lib-local` from '
     'libsmb2-scripts/ to install the prebuilt library, or set '
     '\$SMB2_LIB_PATH to an absolute path.',
   );

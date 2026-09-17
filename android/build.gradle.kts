@@ -3,7 +3,7 @@ import java.net.URL
 import java.security.MessageDigest
 
 group = "com.alesdrnz.dart_smb2"
-version = "0.1.2"
+version = "0.1.3"
 
 buildscript {
     repositories {
@@ -55,7 +55,7 @@ android {
     }
 }
 
-val SMB2_RELEASE_VERSION = "libsmb2-r7"
+val SMB2_RELEASE_VERSION = "libsmb2-r8"
 val SMB2_BASE_URL = "https://github.com/ales-drnz/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}"
 
 val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
@@ -63,15 +63,15 @@ val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
     val abis = mapOf(
         "arm64-v8a" to mapOf(
             "file"   to "libsmb2_android-arm64-v8a.so",
-            "sha256" to "bca1be888c4b805f3a9b1e1a97dfea0ae0e7136f9ba231ddab20d7b80a0e4dd5"
+            "sha256" to "b3a4180c852787970b866d2d24df87559400f265fbb1dfa6549742f0e5fa943a"
         ),
         "armeabi-v7a" to mapOf(
             "file"   to "libsmb2_android-armeabi-v7a.so",
-            "sha256" to "748bd41735839531acc4caaea86f29bea9331e960e21252fe96664db82faed48"
+            "sha256" to "eb9d60da418c79d58823ec3dae9fd9847f2bb0266eae69128c924eec99b5062a"
         ),
         "x86_64" to mapOf(
             "file"   to "libsmb2_android-x86_64.so",
-            "sha256" to "6109e825a4799c1006f934a4ae07a3a01878157103b036d68e79f0188fb1c779"
+            "sha256" to "fa2573f79ea694c674f8f7f0aab29ca8fd7f3fb7df5273c492c5981dbda053fc"
         )
     )
 
@@ -125,8 +125,16 @@ val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
     }
 }
 
+// The remote download wiring is toggled by libsmb2-scripts' "Libs" actions:
+// active in REMOTE mode (downloadSmb2Libraries fetches each ABI's libsmb2.so
+// from GitHub when the local jniLibs copy is absent / stale), commented out in
+// LOCAL mode (use the bundled jniLibs only — never download, never replace
+// them). The kit comments / uncomments this block — do not hand-edit the
+// smb2kit: markers.
+// smb2kit:remote:begin
 tasks.configureEach {
     if (name.contains("preBuild")) {
         dependsOn(downloadSmb2Task)
     }
 }
+// smb2kit:remote:end

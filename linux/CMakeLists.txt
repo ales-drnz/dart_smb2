@@ -12,9 +12,9 @@ endif()
 # arches are supported (x86_64, aarch64) and the binaries live in arch-scoped
 # subdirectories: linux/libs/<arch>/libsmb2.so. The CMake config detects the
 # build's target arch and picks the matching subdir.
-set(SMB2_RELEASE_VERSION "libsmb2-r7")
-set(EXPECTED_SHA256_X86_64  "fe732dacd644cacff60e794c3c05693cb46bf4d849c2cbbcc03c6812a4431d92")
-set(EXPECTED_SHA256_AARCH64  "67d8ee84654289cbb425bf129ac487b40b826513a36297c871c63f895c57bcbf")
+set(SMB2_RELEASE_VERSION "libsmb2-r8")
+set(EXPECTED_SHA256_X86_64  "78f1a94ab977ab46ce5c8718f2f3f7fc0e0acf707863e14cfa5eb3a5e5119db2")
+set(EXPECTED_SHA256_AARCH64  "cf3464ab4b8f4efb408c66fd75897862de814ca6874327b2d9ee40f3435492a2")
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
   set(_SMB2_ARCH         "aarch64")
@@ -31,6 +31,12 @@ endif()
 set(_SMB2_LIB_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/libs/${_SMB2_ARCH}")
 set(_BUNDLED_SMB2  "${_SMB2_LIB_DIR}/libsmb2.so")
 
+# The SHA-256 check + remote download is toggled by libsmb2-scripts' "Libs"
+# actions: active in REMOTE mode (download from GitHub when the local libsmb2.so
+# is absent / stale), commented out in LOCAL mode (use the bundled binary
+# only — never download, never replace it). The kit comments/uncomments this
+# block — do not hand-edit the smb2kit: markers.
+# smb2kit:remote:begin
 set(DOWNLOAD_NEEDED TRUE)
 if(EXISTS "${_BUNDLED_SMB2}")
   file(SHA256 "${_BUNDLED_SMB2}" ACTUAL_SHA256)
@@ -58,6 +64,7 @@ if(DOWNLOAD_NEEDED)
     message(FATAL_ERROR "[dart_smb2] Failed to download ${_SMB2_RELEASE_NAME}: ${ERROR_MSG}. Place it manually at ${_BUNDLED_SMB2}")
   endif()
 endif()
+# smb2kit:remote:end
 
 if(EXISTS "${_BUNDLED_SMB2}")
   message(STATUS "[dart_smb2] Using bundled libsmb2: ${_BUNDLED_SMB2}")

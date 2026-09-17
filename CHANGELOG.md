@@ -1,3 +1,14 @@
+## [0.1.3] - 17-09-2026
+
+### Fixed
+- An open or directory listing that timed out against an unresponsive server (`timeoutSeconds`) aborted the whole app with a native double free (`SIGABRT`, `double free or corruption`), which Dart cannot catch. It now throws `Smb2Exception` with `Smb2ErrorType.timeout`, and `Smb2Pool` reconnects as for any other connection error ([#3](https://github.com/ales-drnz/dart_smb2/issues/3)).
+- Fixed a small native memory leak on every file open.
+
+### Build
+- Updated binaries to `libsmb2-r8` across all platforms.
+- The platform build files carry `smb2kit:` markers for the new local / remote libs switch in [`libsmb2-scripts`](https://github.com/ales-drnz/libsmb2-scripts) (`./build lib-local` / `lib-remote`). In local mode a locally built libsmb2 is used as-is instead of being replaced by the published binary on a SHA-256 mismatch.
+- Integration bootstrap: create the Samba share directory before starting the container, so on Linux it is not root-owned and writes no longer fail with `STATUS_ACCESS_DENIED`.
+
 ## [0.1.2] - 24-08-2026
 
 ### Security
