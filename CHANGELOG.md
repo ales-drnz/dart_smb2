@@ -1,12 +1,12 @@
 ## [0.1.3] - 19-09-2026
 
-### Fixed
-- Opening a file or listing a directory on an unresponsive server killed the app: when the call hit `timeoutSeconds`, libsmb2 freed the request twice and the process aborted natively, which Dart cannot catch. It now throws `Smb2Exception` with `Smb2ErrorType.timeout`, and `Smb2Pool` reconnects as it does for any other connection error ([#3](https://github.com/ales-drnz/dart_smb2/issues/3)).
-- Every file open leaked a few bytes of native memory.
+### Contributions
+- [@laurentiugh](https://github.com/laurentiugh): reported the crash on a timed-out open, traced it to the double free in the bundled libsmb2 and verified the fix against a locally patched build ([#3](https://github.com/ales-drnz/dart_smb2/issues/3)).
 
 ### Build
+- Opening a file or listing a directory on a share that stopped answering no longer kills the app with a native abort, which Dart cannot catch. The call now throws `Smb2Exception` with `Smb2ErrorType.timeout` once `timeoutSeconds` elapses, and `Smb2Pool` reconnects as it does for any other connection error.
+- Every file open no longer leaks a few bytes of native memory.
 - Updated binaries to `libsmb2-r8` across all platforms.
-- Integration tests: the bootstrap creates the Samba share directory before starting the container, so on Linux it is not root-owned and writes no longer fail.
 
 ## [0.1.2] - 24-08-2026
 
