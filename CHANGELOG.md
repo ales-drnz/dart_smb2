@@ -6,8 +6,7 @@
 
 ### Build
 - Updated binaries to `libsmb2-r8` across all platforms.
-- The platform build files carry `smb2kit:` markers for the new local / remote switch in [`libsmb2-scripts`](https://github.com/ales-drnz/libsmb2-scripts) (`./build lib-local` / `lib-remote`). In local mode a locally built libsmb2 is used as-is instead of being replaced by the published binary when its SHA-256 differs.
-- Integration tests: the bootstrap now creates the Samba share directory before starting the container, so on Linux it is not root-owned and writes no longer fail.
+- Integration tests: the bootstrap creates the Samba share directory before starting the container, so on Linux it is not root-owned and writes no longer fail.
 
 ## [0.1.2] - 24-08-2026
 
