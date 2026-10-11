@@ -1,11 +1,18 @@
-# Use the `integration` preset to force serial execution when running
-# integration tests against a single shared Samba container. Pair with
-# `--tags integration` to filter:
+# The integration suites need the Samba container (test/integration/README.md),
+# so a plain `dart test` skips them. Run everything, one file at a time,
+# with:
 #
-#     dart test -P integration --tags integration
+#     dart test -P integration
 #
-# Without --concurrency 1, parallel test files race on writes (mkdir/rename
-# and the seed file in particular trigger lost-update behaviour upstream).
+# and only the integration suites with `dart test -P integration --tags
+# integration`.
+tags:
+  integration:
+    skip: 'needs the Samba container: run with -P integration'
+
 presets:
   integration:
     concurrency: 1
+    tags:
+      integration:
+        skip: false
