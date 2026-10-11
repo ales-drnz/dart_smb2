@@ -17,8 +17,10 @@ void main() {
 
     test('isDisk is true for a disk tree', () {
       expect(
-        const Smb2ShareInfo(name: 'Public', type: Smb2ShareType.diskTree)
-            .isDisk,
+        const Smb2ShareInfo(
+          name: 'Public',
+          type: Smb2ShareType.diskTree,
+        ).isDisk,
         isTrue,
       );
       expect(
@@ -39,16 +41,20 @@ void main() {
 
     test('isHidden detects a trailing-\$ name even without the flag', () {
       expect(
-        const Smb2ShareInfo(name: 'ADMIN\$', type: Smb2ShareType.diskTree)
-            .isHidden,
+        const Smb2ShareInfo(
+          name: 'ADMIN\$',
+          type: Smb2ShareType.diskTree,
+        ).isHidden,
         isTrue,
       );
     });
 
     test('isHidden is false for a plain share', () {
       expect(
-        const Smb2ShareInfo(name: 'Music', type: Smb2ShareType.diskTree)
-            .isHidden,
+        const Smb2ShareInfo(
+          name: 'Music',
+          type: Smb2ShareType.diskTree,
+        ).isHidden,
         isFalse,
       );
     });
@@ -65,12 +71,16 @@ void main() {
       size: 0,
       modified: DateTime.utc(2024),
       created: DateTime.utc(2024),
+      accessed: DateTime.utc(2024),
+      changed: DateTime.utc(2024),
     );
     final file = Smb2Stat(
       type: Smb2FileType.file,
       size: 42,
       modified: DateTime.utc(2024),
       created: DateTime.utc(2024),
+      accessed: DateTime.utc(2024),
+      changed: DateTime.utc(2024),
     );
 
     test('isDirectory / isFile reflect the type', () {
@@ -93,6 +103,8 @@ void main() {
         size: 1234,
         modified: DateTime.utc(2024),
         created: DateTime.utc(2024),
+        accessed: DateTime.utc(2024),
+        changed: DateTime.utc(2024),
       ),
     );
 
@@ -128,6 +140,38 @@ void main() {
     });
   });
 
+  group('Smb2Stat attributes', () {
+    Smb2Stat withAttributes(int attributes) => Smb2Stat(
+      type: Smb2FileType.file,
+      size: 0,
+      modified: DateTime.utc(2024),
+      created: DateTime.utc(2024),
+      accessed: DateTime.utc(2024),
+      changed: DateTime.utc(2024),
+      attributes: attributes,
+    );
+
+    test('isHidden reads FILE_ATTRIBUTE_HIDDEN', () {
+      expect(withAttributes(0x2).isHidden, isTrue);
+      expect(withAttributes(0x20).isHidden, isFalse);
+    });
+
+    test('attributes take part in equality', () {
+      expect(withAttributes(0x2), isNot(equals(withAttributes(0))));
+    });
+  });
+
+  group('Smb2ShareInfo remark', () {
+    test('defaults to empty and takes part in equality', () {
+      const a = Smb2ShareInfo(name: 'm', type: 0);
+      expect(a.remark, '');
+      expect(
+        a,
+        isNot(equals(const Smb2ShareInfo(name: 'm', type: 0, remark: 'x'))),
+      );
+    });
+  });
+
   group('Smb2Version', () {
     test('carries the wire value libsmb2 expects', () {
       expect(Smb2Version.any.value, 0);
@@ -137,11 +181,13 @@ void main() {
 
   group('value equality', () {
     Smb2Stat stat({int size = 1}) => Smb2Stat(
-          type: Smb2FileType.file,
-          size: size,
-          modified: DateTime.utc(2024),
-          created: DateTime.utc(2024),
-        );
+      type: Smb2FileType.file,
+      size: size,
+      modified: DateTime.utc(2024),
+      created: DateTime.utc(2024),
+      accessed: DateTime.utc(2024),
+      changed: DateTime.utc(2024),
+    );
 
     test('Smb2ShareInfo equals by value and shares a hashCode', () {
       const a = Smb2ShareInfo(name: 'Public', type: 0);
