@@ -2,290 +2,260 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
-/// Worker isolate entry point. The code in this file runs *inside* a
-/// spawned isolate, owns a single [Smb2Client] connection, and services
-/// commands sent over a [ReceivePort] by the main-isolate [Worker]
-/// proxy.
+/// The worker isolate: owns one [Smb2Client] and serves the [Request]s of
+/// its [Worker] proxy in order.
 library;
 
+import 'dart:ffi';
 import 'dart:isolate';
-import 'dart:typed_data';
 
-import '../ffi/native_lib.dart';
+import 'package:ffi/ffi.dart';
+
 import '../smb2_client.dart';
 import '../smb2_error_type.dart';
-import '../smb2_exceptions.dart';
-import 'messages.dart';
+import '../smb2_exception.dart';
+import 'protocol.dart';
+import 'worker.dart';
 
-/// Worker isolate entry function. Spawned via `Isolate.spawn` from
-/// [Worker.spawn]. Sends back either a `SendPort` (success — the command
-/// channel) or a string (failure — the error message).
-void workerMain(InitMsg init) {
-  // Re-apply the test-only path override inside this isolate (static
-  // fields don't cross the spawn boundary). No-op when production code
-  // is driving the pool.
-  if (init.testLibOverride != null) {
-    debugLibSmb2PathOverride = init.testLibOverride;
-  }
-
-  final client = Smb2Client.open();
-
+/// Entry point of a worker isolate. Connects, then answers [Ready] — or a
+/// [Failure] with id -1 when the connection (or loading libsmb2) fails.
+void workerMain(Init init) {
+  final replies = init.replies;
+  final Smb2Client client;
   try {
-    client.connect(
-      host: init.host,
-      share: init.share,
-      user: init.user,
-      password: init.password,
-      domain: init.domain,
-      timeoutSeconds: init.timeoutSeconds,
-      seal: init.seal,
-      signing: init.signing,
-      version: init.version,
-    );
+    final p = init.params;
+    client = Smb2Client()
+      ..connect(
+        host: p.host,
+        share: p.share,
+        user: p.user,
+        password: p.password,
+        domain: p.domain,
+        timeout: p.timeout,
+        seal: p.seal,
+        signing: p.signing,
+        version: p.version,
+      );
+  } on Smb2Exception catch (e) {
+    replies.send(Failure(-1, e));
+    return;
   } catch (e) {
-    init.sendPort.send(e.toString());
+    // libsmb2 could not be loaded, or anything else unexpected.
+    replies.send(
+      Failure(-1, Smb2Exception('Cannot start the worker: $e', cause: e)),
+    );
     return;
   }
 
-  final cmdPort = ReceivePort();
-  init.sendPort.send(cmdPort.sendPort);
+  final commands = ReceivePort();
+  final server = _Server(client, replies, commands);
+  replies.send(
+    Ready(commands.sendPort, client.maxReadSize, client.maxWriteSize),
+  );
+  commands.listen((Object? message) => server.handle(message! as Request));
+}
 
-  // Handle ID → opaque [Smb2Handle] map. The worker is the only owner of
-  // file handles inside this isolate.
-  final handles = <int, Smb2Handle>{};
-  int nextHandleId = 0;
+final class _Server {
+  final Smb2Client client;
+  final SendPort replies;
+  final ReceivePort commands;
+  final Map<int, Smb2Handle> handles = {};
+  int nextHandle = 1;
 
-  // Test-only fault injection. Production code never uses these knobs;
-  // the integration suite uses them to make connection-failure and
-  // reconnect scenarios deterministic, without a real network drop.
-  //
-  // * `injectFailureCount > 0` makes the next N non-`__inject_*` commands
-  //   reply with `ErrorMsg` of type `connection`, so callers exercise the
-  //   pool's auto-reconnect path without needing a real network drop.
-  // * `injectHangNext` makes the next non-`__inject_*` command never
-  //   reply at all — the worker silently swallows it. Used to test that
-  //   killing an isolate with a pending send doesn't leak a hung Future.
-  int injectFailureCount = 0;
-  bool injectHangNext = false;
-  // `__inject_readhandle_zero_next`: makes the next `readHandle` reply
-  // with an empty Uint8List instead of calling `client.readHandle`, to
-  // simulate a server returning 0 bytes mid-stream (truncated file).
-  bool injectReadHandleZeroNext = false;
+  // Test-only fault injection (Op.inject*).
+  int failNext = 0;
+  bool hangNext = false;
+  bool emptyReadNext = false;
 
-  cmdPort.listen((msg) {
-    if (msg is! Map) return;
-    final cmd = msg['cmd'] as String;
-    final replyTo = msg['replyTo'] as SendPort?;
+  _Server(this.client, this.replies, this.commands);
 
-    // Apply pending fault injection BEFORE the normal switch, unless the
-    // command itself is an injection knob (those always run).
-    if (!cmd.startsWith('__inject_')) {
-      if (injectHangNext) {
-        injectHangNext = false;
-        // Intentionally never reply — the test verifies that the main
-        // isolate notices the worker dies and rejects pending sends.
+  void handle(Request r) {
+    if (!r.op.name.startsWith('inject')) {
+      if (hangNext) {
+        hangNext = false;
         return;
       }
-      if (injectFailureCount > 0) {
-        injectFailureCount--;
-        replyTo?.send(
-          ErrorMsg(
+      if (failNext > 0) {
+        failNext--;
+        _fail(
+          r,
+          const Smb2Exception(
             'Injected connection failure',
-            null,
-            Smb2ErrorType.connection.index,
+            type: Smb2ErrorType.connection,
           ),
         );
+        _releaseArgs(r);
         return;
       }
     }
-
     try {
-      switch (cmd) {
-        // ── Test-only fault injection commands ────────────────────────
-        case '__inject_fail_next_n':
-          injectFailureCount = msg['count'] as int;
-          replyTo?.send(true);
-          return;
-        case '__inject_hang':
-          injectHangNext = true;
-          replyTo?.send(true);
-          return;
-        case '__inject_readhandle_zero_next':
-          injectReadHandleZeroNext = true;
-          replyTo?.send(true);
-          return;
-
-        case 'listDir':
-          replyTo?.send(client.listDirectory(msg['path'] as String));
-        case 'listShares':
-          replyTo?.send(
-            client.listShares(
-              host: msg['host'] as String,
-              user: msg['user'] as String?,
-              password: msg['password'] as String?,
-              domain: msg['domain'] as String?,
-            ),
-          );
-        case 'readRange':
-          final rangeData = client.readFileRange(
-            msg['path'] as String,
-            offset: msg['offset'] as int? ?? 0,
-            length: msg['length'] as int,
-          );
-          replyTo?.send(TransferableTypedData.fromList([rangeData]));
-        case 'readFile':
-          final fileData = client.readFile(msg['path'] as String);
-          replyTo?.send(TransferableTypedData.fromList([fileData]));
-        case 'stat':
-          replyTo?.send(client.stat(msg['path'] as String));
-        case 'fileSize':
-          replyTo?.send(client.fileSize(msg['path'] as String));
-
-        case 'echo':
-          client.echo();
-          replyTo?.send(true);
-        case 'statvfs':
-          replyTo?.send(client.statvfs(msg['path'] as String));
-        case 'readlink':
-          replyTo?.send(client.readlink(msg['path'] as String));
-        case 'fsync':
-          final fhSync = handles[msg['handleId'] as int];
-          if (fhSync == null) {
-            replyTo?.send(ErrorMsg('Invalid handle'));
-            return;
-          }
-          client.fsync(fhSync);
-          replyTo?.send(true);
-        case 'ftruncate':
-          final fhTrunc = handles[msg['handleId'] as int];
-          if (fhTrunc == null) {
-            replyTo?.send(ErrorMsg('Invalid handle'));
-            return;
-          }
-          client.ftruncate(fhTrunc, msg['length'] as int);
-          replyTo?.send(true);
-
-        // ── Write commands ────────────────────────────────────────────
-        case 'writeRange':
-          final writeRangeData = (msg['data'] as TransferableTypedData)
-              .materialize()
-              .asUint8List();
-          client.writeFileRange(
-            msg['path'] as String,
-            writeRangeData,
-            offset: msg['offset'] as int? ?? 0,
-          );
-          replyTo?.send(true);
-        case 'writeFile':
-          final writeFileData = (msg['data'] as TransferableTypedData)
-              .materialize()
-              .asUint8List();
-          client.writeFile(msg['path'] as String, writeFileData);
-          replyTo?.send(true);
-        case 'deleteFile':
-          client.deleteFile(msg['path'] as String);
-          replyTo?.send(true);
-        case 'mkdir':
-          client.mkdir(msg['path'] as String);
-          replyTo?.send(true);
-        case 'rmdir':
-          client.rmdir(msg['path'] as String);
-          replyTo?.send(true);
-        case 'rename':
-          client.rename(
-            msg['oldPath'] as String,
-            msg['newPath'] as String,
-          );
-          replyTo?.send(true);
-        case 'truncate':
-          client.truncate(msg['path'] as String, msg['length'] as int);
-          replyTo?.send(true);
-        case 'setFileTimes':
-          final modifiedUs = msg['modifiedUs'] as int?;
-          final accessedUs = msg['accessedUs'] as int?;
-          client.setFileTimes(
-            msg['path'] as String,
-            modified: modifiedUs == null
-                ? null
-                : DateTime.fromMicrosecondsSinceEpoch(modifiedUs, isUtc: true),
-            accessed: accessedUs == null
-                ? null
-                : DateTime.fromMicrosecondsSinceEpoch(accessedUs, isUtc: true),
-          );
-          replyTo?.send(true);
-
-        // ── File handle commands ──────────────────────────────────────
-        case 'openFile':
-          final fh = client.openFileHandle(msg['path'] as String);
-          final id = nextHandleId++;
-          handles[id] = fh;
-          replyTo?.send(id);
-        case 'openFileWithSize':
-          final (fh, size) = client.openFileWithSize(msg['path'] as String);
-          final id = nextHandleId++;
-          handles[id] = fh;
-          replyTo?.send([id, size]);
-        case 'readHandle':
-          final fh = handles[msg['handleId'] as int];
-          if (fh == null) {
-            replyTo?.send(ErrorMsg('Invalid handle'));
-            return;
-          }
-          if (injectReadHandleZeroNext) {
-            injectReadHandleZeroNext = false;
-            replyTo?.send(TransferableTypedData.fromList([Uint8List(0)]));
-            return;
-          }
-          final handleData = client.readHandle(
-            fh,
-            offset: msg['offset'] as int? ?? 0,
-            length: msg['length'] as int,
-          );
-          replyTo?.send(TransferableTypedData.fromList([handleData]));
-        case 'openFileWrite':
-          final fh = client.openFileHandleWrite(msg['path'] as String);
-          final id = nextHandleId++;
-          handles[id] = fh;
-          replyTo?.send(id);
-        case 'writeHandle':
-          final fh = handles[msg['handleId'] as int];
-          if (fh == null) {
-            replyTo?.send(ErrorMsg('Invalid handle'));
-            return;
-          }
-          final writeHandleData = (msg['data'] as TransferableTypedData)
-              .materialize()
-              .asUint8List();
-          client.writeHandle(
-            fh,
-            writeHandleData,
-            offset: msg['offset'] as int? ?? 0,
-          );
-          replyTo?.send(true);
-        case 'closeHandle':
-          final id = msg['handleId'] as int;
-          final fh = handles.remove(id);
-          if (fh != null) client.closeHandle(fh);
-          replyTo?.send(true);
-
-        case 'close':
-          // Close all open handles before disconnecting
-          for (final fh in handles.values) {
-            try {
-              client.closeHandle(fh);
-            } catch (_) {}
-          }
-          handles.clear();
-          client.disconnect();
-          replyTo?.send(true);
-          cmdPort.close();
-      }
+      final value = _run(r);
+      if (r.id != 0) replies.send(Reply(r.id, value));
+    } on Smb2Exception catch (e) {
+      _fail(r, e);
     } catch (e) {
-      if (e is Smb2Exception) {
-        replyTo?.send(ErrorMsg(e.message, e.errorCode, e.type.index));
-      } else {
-        replyTo?.send(ErrorMsg(e.toString()));
-      }
+      _fail(r, Smb2Exception('Unexpected worker error: $e', cause: e));
     }
-  });
+    if (r.op == Op.close) commands.close();
+  }
+
+  void _fail(Request r, Smb2Exception e) {
+    if (r.id != 0) replies.send(Failure(r.id, e));
+  }
+
+  /// Frees the native buffer a write request carries, when it is not run.
+  void _releaseArgs(Request r) {
+    if (r.op == Op.writeFile ||
+        r.op == Op.writeRange ||
+        r.op == Op.writeHandle) {
+      malloc.free(Pointer<Uint8>.fromAddress(r.args[1]! as int));
+    }
+  }
+
+  Smb2Handle _handle(Object? id, String what) {
+    final h = handles[id! as int];
+    if (h == null) {
+      throw Smb2Exception('$what: unknown handle', type: Smb2ErrorType.state);
+    }
+    return h;
+  }
+
+  int _keep(Smb2Handle h) {
+    final id = nextHandle++;
+    handles[id] = h;
+    return id;
+  }
+
+  Object? _run(Request r) {
+    final a = r.args;
+    switch (r.op) {
+      case Op.listDirectory:
+        return client.listDirectory(a[0]! as String);
+      case Op.stat:
+        return client.stat(a[0]! as String);
+      case Op.statvfs:
+        return client.statvfs(a[0]! as String);
+      case Op.readlink:
+        return client.readlink(a[0]! as String);
+      case Op.echo:
+        client.echo();
+        return null;
+      case Op.readFile:
+        final (h, size) = client.openFileWithSize(a[0]! as String);
+        try {
+          return _bytes(client.readNative(h, length: size));
+        } finally {
+          client.closeHandle(h);
+        }
+      case Op.readRange:
+        final h = client.openFile(a[0]! as String);
+        try {
+          return _bytes(
+            client.readNative(h, offset: a[1]! as int, length: a[2]! as int),
+          );
+        } finally {
+          client.closeHandle(h);
+        }
+      case Op.writeFile || Op.writeRange:
+        final buffer = a[1]! as int;
+        try {
+          final h = client.openFileWrite(
+            a[0]! as String,
+            truncate: r.op == Op.writeFile,
+          );
+          try {
+            client.writeNative(h, buffer, a[2]! as int, offset: a[3]! as int);
+          } finally {
+            client.closeHandle(h);
+          }
+        } finally {
+          malloc.free(Pointer<Uint8>.fromAddress(buffer));
+        }
+        return null;
+      case Op.mkdir:
+        client.mkdir(a[0]! as String);
+        return null;
+      case Op.rmdir:
+        client.rmdir(a[0]! as String);
+        return null;
+      case Op.deleteFile:
+        client.deleteFile(a[0]! as String);
+        return null;
+      case Op.rename:
+        client.rename(a[0]! as String, a[1]! as String);
+        return null;
+      case Op.truncate:
+        client.truncate(a[0]! as String, a[1]! as int);
+        return null;
+      case Op.setFileTimes:
+        final modified = a[1] as int?;
+        final accessed = a[2] as int?;
+        client.setFileTimes(
+          a[0]! as String,
+          modified: modified == null
+              ? null
+              : DateTime.fromMicrosecondsSinceEpoch(modified, isUtc: true),
+          accessed: accessed == null
+              ? null
+              : DateTime.fromMicrosecondsSinceEpoch(accessed, isUtc: true),
+        );
+        return null;
+      case Op.open:
+        return _keep(client.openFile(a[0]! as String));
+      case Op.openWithSize:
+        final (h, size) = client.openFileWithSize(a[0]! as String);
+        return (_keep(h), size);
+      case Op.openWrite:
+        return _keep(
+          client.openFileWrite(a[0]! as String, truncate: a[1]! as bool),
+        );
+      case Op.readHandle:
+        final h = _handle(a[0], 'Read');
+        if (emptyReadNext) {
+          emptyReadNext = false;
+          return const NativeBytes(0, 0);
+        }
+        return _bytes(
+          client.readNative(h, offset: a[1]! as int, length: a[2]! as int),
+        );
+      case Op.writeHandle:
+        final buffer = a[1]! as int;
+        try {
+          client.writeNative(
+            _handle(a[0], 'Write'),
+            buffer,
+            a[2]! as int,
+            offset: a[3]! as int,
+          );
+        } finally {
+          malloc.free(Pointer<Uint8>.fromAddress(buffer));
+        }
+        return null;
+      case Op.fsyncHandle:
+        client.fsyncHandle(_handle(a[0], 'Fsync'));
+        return null;
+      case Op.ftruncateHandle:
+        client.ftruncateHandle(_handle(a[0], 'Ftruncate'), a[1]! as int);
+        return null;
+      case Op.closeHandle:
+        final h = handles.remove(a[0]! as int);
+        if (h != null) client.closeHandle(h);
+        return null;
+      case Op.close:
+        handles.clear();
+        client.disconnect();
+        return null;
+      case Op.injectFailures:
+        failNext = a[0]! as int;
+        return null;
+      case Op.injectHang:
+        hangNext = true;
+        return null;
+      case Op.injectEmptyRead:
+        emptyReadNext = true;
+        return null;
+    }
+  }
 }
+
+NativeBytes _bytes((int, int) read) => NativeBytes(read.$1, read.$2);
