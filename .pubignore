@@ -14,19 +14,6 @@ pubspec.lock
 *.iml
 .DS_Store
 
-# Native build cache
-.build/
-.swiftpm/
-/android/.gradle/
-/android/build/
-
-# Native binaries (downloaded by build)
-/android/src/main/jniLibs/
-/ios/dart_smb2/Frameworks/
-/macos/dart_smb2/Frameworks/
-/linux/libs/
-/windows/libs/
-
 # Docs
 /docs/
 
@@ -35,9 +22,14 @@ pubspec.lock
 CLAUDE.md
 
 # Tests
-test/
+/test/
 dart_test.yaml
 
-# Codegen config
-analysis_options.yaml
-ffigen.yaml
+# Branding stays on GitHub: the README loads the diagrams and the
+# screenshots from there. Only the icon ships, as the pubspec screenshot.
+/imgs/*
+!/imgs/dart_smb2.png
+
+# Dev tools: ffigen, the drift check, the release updater, the icon and
+# diagram generator
+/tool/

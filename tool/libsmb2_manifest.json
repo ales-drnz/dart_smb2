@@ -1,0 +1,78 @@
+{
+  "release": "r9",
+  "libsmb2": {
+    "commit": "e94eee9465d55ed094ace2c038a8705b4822dada",
+    "version": "7.0.0-dev+git20261011.e94eee9",
+    "tarballSha256": "7f347c08c8cb66a94e42d1cac4686e71a093a7022e7e77cb5cc9325b8369b0ce"
+  },
+  "source": {
+    "repository": "https://github.com/ales-drnz/libsmb2-scripts",
+    "commit": "7c2efe7e78fbdc2039fe0a15aad5bf822aa37f96"
+  },
+  "license": "LGPL-2.1-or-later",
+  "patches": {
+    "shared": [
+      "patch_active_contexts_lock.py",
+      "patch_nterror_reporting.py",
+      "patch_poll_eintr.py",
+      "patch_socket_close_guard.py",
+      "patch_utimes.py"
+    ],
+    "windows": [
+      "patch_windows_csprng.py",
+      "patch_windows_headers.py",
+      "patch_windows_sockets.py"
+    ]
+  },
+  "symbols": [
+    "smb2_init_context",
+    "smb2_destroy_context",
+    "smb2_set_user",
+    "smb2_set_password",
+    "smb2_set_domain",
+    "smb2_set_seal",
+    "smb2_set_sign",
+    "smb2_set_version",
+    "smb2_set_timeout",
+    "smb2_connect_share",
+    "smb2_disconnect_share",
+    "smb2_echo",
+    "smb2_get_max_read_size",
+    "smb2_get_max_write_size",
+    "smb2_get_error",
+    "smb2_get_nterror",
+    "nterror_to_errno",
+    "smb2_opendir",
+    "smb2_readdir",
+    "smb2_closedir",
+    "smb2_open",
+    "smb2_close",
+    "smb2_pread",
+    "smb2_pwrite",
+    "smb2_fsync",
+    "smb2_fstat",
+    "smb2_ftruncate",
+    "smb2_stat",
+    "smb2_statvfs",
+    "smb2_readlink",
+    "smb2_truncate",
+    "smb2_rename",
+    "smb2_unlink",
+    "smb2_mkdir",
+    "smb2_rmdir",
+    "smb2_utimes",
+    "smb2_share_enum_sync",
+    "smb2_free_data"
+  ],
+  "assets": {
+    "libsmb2_android-arm64-v8a.so": "a372124dbb0e7eaf22e6f2c070f143d09d22d67590081cf3ce789dfa9aa950bf",
+    "libsmb2_android-armeabi-v7a.so": "694bdc99975e4b5f7a7b9508e5ae0b47d7be8a4803fd3966be6ef3ff47d7b0d2",
+    "libsmb2_android-x86_64.so": "4ba62d04dfd9901b7c9796a375e89041d864a70297cdc7443e6f2500765b28bb",
+    "libsmb2_ios.xcframework.zip": "05fc23db3ae852335b0cb448048b9ef9651ef3c8b852dfac7384bdd74b3a53a7",
+    "libsmb2_linux-aarch64.so": "a384ea1c297c05e4b2bd74f8c8f8359dbe62b737dd22279b1485ff48bc1e95f3",
+    "libsmb2_linux-x86_64.so": "4a0a43f89eb00aeb43e7a9b034e238852578b1cfa96083d69af9e4d714a96a81",
+    "libsmb2_macos.xcframework.zip": "d4f01d340c58bcbe938055cbed3d48ce350ba0f5e1deca24867945e5b9002c94",
+    "libsmb2_windows-arm64.dll": "4ea893bc6ba44f0570b0c48933cfac59259b68b89293ed7b6c7c9c97b026b736",
+    "libsmb2_windows-x86_64.dll": "deefee925d3b9b998127288125ce63b8e45bfc1799ccbb6907f9c10f308d951d"
+  }
+}
