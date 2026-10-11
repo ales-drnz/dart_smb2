@@ -135,7 +135,7 @@ class _ReadTestsPageState extends ConsumerState<ReadTestsPage> with SmbTestPageM
           try {
             final bytes = await pool.downloadToFile(
               resolvedPath,
-              dest,
+              dest.path,
               onProgress: (received, size) {
                 lastPct = received * 100 ~/ size;
               },
@@ -163,12 +163,12 @@ class _ReadTestsPageState extends ConsumerState<ReadTestsPage> with SmbTestPageM
         final results = <String>[];
         final badPath = resolvePath('__dart_smb2_nonexistent_${DateTime.now().millisecondsSinceEpoch}__');
 
-        // stat on missing → expect fileNotFound
+        // stat on missing → expect notFound
         try {
           await pool.stat(badPath);
           results.add('stat: unexpectedly succeeded');
         } on Smb2Exception catch (e) {
-          results.add('stat(missing) → ${e.type.name} (errno=${e.errorCode})');
+          results.add('stat(missing) → ${e.type.name} (errno=${e.errno})');
         }
 
         // exists on missing → expect false (no throw)
@@ -179,12 +179,12 @@ class _ReadTestsPageState extends ConsumerState<ReadTestsPage> with SmbTestPageM
           results.add('exists(missing) THREW → ${e.type.name}');
         }
 
-        // deleteFile on missing → expect fileNotFound
+        // deleteFile on missing → expect notFound
         try {
           await pool.deleteFile(badPath);
           results.add('deleteFile: unexpectedly succeeded');
         } on Smb2Exception catch (e) {
-          results.add('deleteFile(missing) → ${e.type.name} (errno=${e.errorCode})');
+          results.add('deleteFile(missing) → ${e.type.name} (errno=${e.errno})');
         }
 
         return results.join('\n');

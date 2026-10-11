@@ -76,7 +76,7 @@ class _WriteTestsPageState extends ConsumerState<WriteTestsPage> with SmbTestPag
       await pool.deleteFile(normalized);
       info.add('deleted: $normalized');
     } on Smb2Exception catch (e) {
-      if (e.type == Smb2ErrorType.fileNotFound) {
+      if (e.type == Smb2ErrorType.notFound) {
         info.add('already missing: $normalized');
       } else {
         errors.add('delete failed ($normalized): ${e.message}');
@@ -89,7 +89,7 @@ class _WriteTestsPageState extends ConsumerState<WriteTestsPage> with SmbTestPag
         await pool.rmdir(parent);
         info.add('removed dir: $parent');
       } on Smb2Exception catch (e) {
-        if (e.type == Smb2ErrorType.fileNotFound) {
+        if (e.type == Smb2ErrorType.notFound) {
           info.add('dir already missing: $parent');
         } else if (_isDirectoryNotEmpty(e)) {
           info.add('stop at non-empty dir: $parent');
@@ -115,7 +115,7 @@ class _WriteTestsPageState extends ConsumerState<WriteTestsPage> with SmbTestPag
         await pool.rmdir(current);
         info.add('removed dir: $current');
       } on Smb2Exception catch (e) {
-        if (e.type == Smb2ErrorType.fileNotFound) {
+        if (e.type == Smb2ErrorType.notFound) {
           info.add('dir already missing: $current');
         } else if (_isDirectoryNotEmpty(e)) {
           info.add('stop at non-empty dir: $current');
@@ -197,7 +197,7 @@ class _WriteTestsPageState extends ConsumerState<WriteTestsPage> with SmbTestPag
     }
 
     if (errors.isNotEmpty) {
-      throw Smb2Exception(errors.join(', '), 0, Smb2ErrorType.unknown);
+      throw Smb2Exception(errors.join(', '));
     }
 
     return messages.isEmpty ? 'Nothing removed' : messages.join(', ');
