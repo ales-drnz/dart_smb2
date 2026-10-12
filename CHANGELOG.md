@@ -46,6 +46,8 @@ A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the change
 - `rmdir` of a directory that is not empty fails with `notEmpty`; it returned success and kept the directory.
 - The Linux libraries need glibc 2.31 instead of 2.38, and every binary exports libsmb2's API only.
 - The binaries are built and checked on GitHub's runners, with `manifest.json` and `SHA256SUMS` on each release.
+- CI on GitHub: analysis on Dart 3.10 and stable, tests on Linux, macOS and Windows, the integration suites against Samba, and app builds for every platform.
+- The example is one Dart file instead of a Flutter app.
 
 ## [0.1.3] - 19-09-2026
 
