@@ -36,23 +36,23 @@ const _baseUrl =
 /// (tool/update_libsmb2.sh writes this table).
 const _sha256 = <String, String>{
   'libsmb2_android-arm64-v8a.so':
-      'a372124dbb0e7eaf22e6f2c070f143d09d22d67590081cf3ce789dfa9aa950bf',
+      'bb0e6b73988816bf9a6b54106ff998b09aa32387915620b5d69f1289f59f69e7',
   'libsmb2_android-armeabi-v7a.so':
-      '694bdc99975e4b5f7a7b9508e5ae0b47d7be8a4803fd3966be6ef3ff47d7b0d2',
+      'dcabdd5d1f8989d89ed132fc3ba1c9239992a715849bd29b6899bdff44c13801',
   'libsmb2_android-x86_64.so':
-      '4ba62d04dfd9901b7c9796a375e89041d864a70297cdc7443e6f2500765b28bb',
+      'cabc0066ea09864ea38f2d37f5ce483c73e74cf0ce58e911794a53ada4888bf8',
   'libsmb2_ios.xcframework.zip':
-      '05fc23db3ae852335b0cb448048b9ef9651ef3c8b852dfac7384bdd74b3a53a7',
+      'e43a69a3afb7744e8b0c1ed12355824a31e82751c18be77e9e71ae83640f8086',
   'libsmb2_linux-aarch64.so':
-      'a384ea1c297c05e4b2bd74f8c8f8359dbe62b737dd22279b1485ff48bc1e95f3',
+      '4248a3fb2dae740d48453b807769fd4d9e83e04395da7d6625c7fc429f8fda36',
   'libsmb2_linux-x86_64.so':
-      '4a0a43f89eb00aeb43e7a9b034e238852578b1cfa96083d69af9e4d714a96a81',
+      '3229ddd34b7fd3511e01f4ed7db845969aa8b4ac7b48e9b7f6a3f16859780008',
   'libsmb2_macos.xcframework.zip':
-      'd4f01d340c58bcbe938055cbed3d48ce350ba0f5e1deca24867945e5b9002c94',
+      '43f4b38e46337c2e9166fe36b3b3fde57b952f7cade55ca048645be1a7746bb5',
   'libsmb2_windows-arm64.dll':
-      '4ea893bc6ba44f0570b0c48933cfac59259b68b89293ed7b6c7c9c97b026b736',
+      '9274aa4d75ce1559c67d6c44e70d2e539ac0c8bfbd68e29391ccb68f88b08f25',
   'libsmb2_windows-x86_64.dll':
-      'deefee925d3b9b998127288125ce63b8e45bfc1799ccbb6907f9c10f308d951d',
+      'bd09c8c3f9b93ae30fba593a72055489d88e201a4488247930c0a85f005bc36e',
 };
 
 void main(List<String> args) async {
