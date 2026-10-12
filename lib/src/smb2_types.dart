@@ -7,7 +7,7 @@ import 'package:meta/meta.dart';
 import 'pool/pool.dart';
 import 'smb2_client.dart';
 
-/// SMB share type constants ([MS-SRVS] 2.2.2.4), for [Smb2ShareInfo.type].
+/// SMB share type constants (MS-SRVS 2.2.2.4), for [Smb2ShareInfo.type].
 abstract final class Smb2ShareType {
   /// Disk / folder share — the usual file-serving case.
   static const int diskTree = 0;
@@ -142,7 +142,7 @@ final class Smb2Stat {
   /// Last change of the content or the metadata.
   final DateTime changed;
 
-  /// The FILE_ATTRIBUTE_* flags of the entry ([MS-FSCC] 2.6).
+  /// The FILE_ATTRIBUTE_* flags of the entry (MS-FSCC 2.6).
   final int attributes;
 
   /// Builds a [Smb2Stat].
