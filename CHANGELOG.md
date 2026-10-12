@@ -1,3 +1,52 @@
+## [0.2.0] - 12-10-2026
+
+A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the changes to make in an app.
+
+### Breaking
+- dart_smb2 is a plain Dart package: a build hook bundles libsmb2, and the Flutter plugin (Gradle, CocoaPods, SwiftPM, CMake) is gone. It needs Dart 3.10, and Flutter 3.38 in an app.
+- `Smb2Exception` takes named arguments (`type:`, `ntStatus:`, `errno:`, `path:`, `cause:`) and is `final`.
+- `Smb2ErrorType` gains `notEmpty`, `isADirectory`, `inUse`, `notSupported`, `state` and `cancelled`; a closed pool or handle and a client that is not connected report `state`, not `unknown`.
+- `Smb2Pool.downloadToFile()` takes the destination as a `String` path and writes it atomically.
+- `Smb2Client.listShares()` is static, and `Smb2Client` methods throw `state` on a closed or foreign handle.
+- `mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated after a network failure.
+- `Smb2Stat` requires `accessed` and `changed`, and the public types are `final`.
+
+### Added
+- `Smb2CancelToken`, taken by every `Smb2Pool` call.
+- `Smb2Exception.isNetworkFailure`, `isTransient`, `isNotFound`, `isCancelled`, `isAuthError`, `ntStatus` and `errno`.
+- `Smb2Stat.accessed`, `changed`, `attributes` and `isHidden`, and times to the microsecond.
+- `Smb2ShareInfo.remark` and `Smb2ShareType.temporary`.
+- `Smb2Client.maxReadSize` and `maxWriteSize`.
+- `Smb2Pool.openFileWrite(truncate:)`, `isClosed` and `defaultChunkSize`.
+- `hooks.user_defines.dart_smb2.libsmb2`, to bundle a local libsmb2.
+
+### Changed
+- The error type comes from the server's NT status and from per-platform errno tables: Windows errors were misread.
+- `streamFile()` reads one chunk ahead, 4 MiB by default; `downloadToFile()` writes at the disk's pace.
+- Calls go to the least busy worker, and the workers connect in parallel.
+- Reads reach the calling isolate in native buffers, without a copy.
+- `streamWrite()` repeats a chunk after a reconnect.
+- Paths drop leading slashes and take backslashes.
+- `timeout: Duration` replaces `timeoutSeconds:`, which is deprecated.
+- `Smb2ErrorType.fileNotFound`, `Smb2Exception.isConnectionError` and `errorCode` are deprecated: use `notFound`, `isNetworkFailure` and `errno`.
+- `Smb2Client.open()`, `openFileHandle()`, `openFileHandleWrite()`, `readHandle()`, `writeHandle()`, `fsync()` and `ftruncate()` are deprecated: use `Smb2Client()`, `openFile()`, `openFileWrite()`, `readFromHandle()`, `writeToHandle()`, `fsyncHandle()` and `ftruncateHandle()`.
+- `streamFile(isCanceled:)` and the instance `Smb2Pool.listShares()` are deprecated: use `cancelToken:` and `Smb2Pool.listSharesOn()`.
+
+### Fixed
+- Closing a handle twice freed it twice and aborted the process.
+- `readFileRange()` came back short, and `readFileChunked()` skipped data, for reads above the server's MaxReadSize.
+- A handle on a worker replaced by a reconnect failed for good.
+- `Smb2Pool.connect()` hung when a worker isolate died before connecting, and reported `unknown` for wrong credentials.
+- `disconnect()` during a reconnect left a worker and its session alive, or threw an unhandled `RangeError`.
+- A plain `dart test` ran the integration suites, which failed now and then.
+
+### Build
+- libsmb2 is upstream master of 11-10-2026 (e94eee9), with sealed-reply enforcement and receive caps, from release `libsmb2-r9`.
+- libsmb2's context list takes a lock, so pools connecting and disconnecting at once no longer race on it.
+- `rmdir` of a directory that is not empty fails with `notEmpty`; it returned success and kept the directory.
+- The Linux libraries need glibc 2.31 instead of 2.38, and every binary exports libsmb2's API only.
+- The binaries are built and checked on GitHub's runners, with `manifest.json` and `SHA256SUMS` on each release.
+
 ## [0.1.3] - 19-09-2026
 
 ### Contributions
