@@ -38,8 +38,9 @@ final class TestServer {
       if (t.isEmpty || t.startsWith('#') || eq <= 0) continue;
       env[t.substring(0, eq).trim()] = t.substring(eq + 1).trim();
     }
+    final port = env['SMB2_HOST_PORT'] ?? '445';
     return TestServer(
-      '127.0.0.1',
+      port == '445' ? '127.0.0.1' : '127.0.0.1:$port',
       env['SMB2_SHARE'] ?? 'public',
       env['SMB2_USER'] ?? 'testuser',
       env['SMB2_PASS'] ?? 'testpass',

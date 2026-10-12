@@ -26,14 +26,18 @@ Future<void> main() async {
   final env = File('$_dir/.env.test').existsSync()
       ? '.env.test'
       : '.env.test.example';
-  final up = await Process.run('docker', [
-    'compose',
-    '--env-file',
-    env,
-    'up',
-    '-d',
-    '--wait',
-  ], workingDirectory: _dir);
+  // The container's testuser takes the calling user's uid, so it can write
+  // to the share directory that user created (CI runners are not uid
+  // 1000).
+  final uid = Platform.isWindows
+      ? null
+      : (await Process.run('id', ['-u'])).stdout.toString().trim();
+  final up = await Process.run(
+    'docker',
+    ['compose', '--env-file', env, 'up', '-d', '--wait'],
+    workingDirectory: _dir,
+    environment: {if (uid != null && uid.isNotEmpty) 'SMB2_UID': uid},
+  );
   stdout.write(up.stdout);
   stderr.write(up.stderr);
   if (up.exitCode != 0) exit(up.exitCode);

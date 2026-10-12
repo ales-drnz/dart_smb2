@@ -26,7 +26,9 @@ services:
       # variable names, only values), so changing it requires editing both
       # files in sync.
       ACCOUNT_testuser: "${SMB2_PASS}"
-      UID_testuser: "1000"
+      # bootstrap.dart passes the calling user's uid, so the account owns
+      # the bind-mounted share like the host user does (1000 by default).
+      UID_testuser: "${SMB2_UID:-1000}"
       GROUPS_testuser: "users"
 
       # Share config — full smb.conf section. The image picks up any env var

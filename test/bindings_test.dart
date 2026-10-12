@@ -65,10 +65,12 @@ void main() {
     );
   });
 
-  test('connecting to an unused local port fails with a network failure', () {
+  test('connecting to a closed port fails with a network failure', () {
+    // Port 1: nothing listens there. (Port 445 of the loopback is Windows'
+    // own SMB server on a Windows host.)
     expect(
       () => Smb2Client().connect(
-        host: '127.0.0.2',
+        host: '127.0.0.1:1',
         share: 'x',
         timeout: const Duration(seconds: 3),
       ),

@@ -168,7 +168,9 @@ jobs:
         run: |
           flutter create --platforms=${{ matrix.platform }} --project-name smb2_ci_app "$RUNNER_TEMP/app"
           cd "$RUNNER_TEMP/app"
-          flutter pub add "dart_smb2:{\"path\":\"$(cd "$GITHUB_WORKSPACE" && pwd)\"}"
+          # A path pub reads on Windows too (D:/a/..., not /d/a/...).
+          workspace="$(cygpath -m "$GITHUB_WORKSPACE" 2>/dev/null || echo "$GITHUB_WORKSPACE")"
+          flutter pub add "dart_smb2:{\"path\":\"$workspace\"}"
           cat > lib/main.dart <<'DART'
           import 'package:dart_smb2/dart_smb2.dart';
           import 'package:flutter/widgets.dart';

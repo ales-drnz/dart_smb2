@@ -1,67 +1,44 @@
-# dart_smb2 — integration tests
+# dart_smb2 integration tests
 
-Spins up a real Samba 4 server in Docker and exercises the full `Smb2Client` + `Smb2Pool` API against it. Mirrors the pattern used by the other libraries (dart_jellyfin, dart_plex).
+The suites in this folder run the `Smb2Client` and `Smb2Pool` API against a real Samba 4 server in Docker. A plain `dart test` skips them; CI runs them on every push.
 
-## Prerequisites
-
-- **Docker Desktop** (or any Docker engine).
-- **macOS / Linux** dev host. The bootstrap script picks the right native libsmb2 binary from the platform-specific bundle.
-- **Native libsmb2 binary** present on disk. Run once after a fresh clone (from the dart_smb2 repo root):
-  ```bash
-  cd ../libsmb2-scripts
-  ./build lib-local
-  ```
-  This installs the built `libsmb2.xcframework` / `libsmb2.so` into the dart_smb2 platform folders and switches the package to local libs. Run `./build lib-remote` before committing.
-
-## First-time setup
+## Running them
 
 ```bash
-# From the dart_smb2 repo root:
-cp test/integration/.env.test.example test/integration/.env.test
-# (optional) edit .env.test to bump SMB2_HOST_PORT if 445 is taken.
-
+# From the dart_smb2 repo root: start the container and seed the share.
 dart run test/integration/bootstrap.dart
-```
 
-The bootstrap is idempotent — re-running it just re-checks the seed file. It:
+# Run every suite, one file at a time (the dart_test.yaml preset).
+dart test -P integration
 
-1. Reads `.env.test`.
-2. Brings up the Samba container via `docker compose up -d --wait`.
-3. Connects through `Smb2Pool` and drops a known 1 MiB seed file (`dart_smb2_seed.bin`) on the share.
-4. Persists everything (`host`, `share`, `user`, `password`, `libPath`, `testFile`) to `.bootstrap-cache.json`.
-
-## Running the tests
-
-```bash
-# Just the integration suite (serial, per dart_test.yaml preset):
+# Only the integration suites.
 dart test -P integration --tags integration
-
-# Or everything:
-dart test
 ```
 
-If the bootstrap cache is missing, the integration groups skip with a clear message and `dart test` stays green.
+The bootstrap starts the container with `docker compose up --wait`, gives its `testuser` your uid so it can write to the share folder, and writes a 1 MiB seed file (`dart_smb2_seed.bin`). Running it again leaves a running container and a present seed alone. Each suite works in a scratch folder of its own on the share and removes it at the end.
 
-## Port 445 conflict
+The library comes from the build hook as in any app: the pinned release, or the binaries `hooks.user_defines` points at (see the package README).
 
-The container binds `127.0.0.1:445` by default. macOS users who have **System Settings → General → Sharing → File Sharing** enabled will hit a conflict. Either turn File Sharing off temporarily or bump the port in `.env.test`:
+## Settings
+
+The container and the tests read `test/integration/.env.test`, or `.env.test.example` when there is none:
 
 ```env
-SMB2_HOST_PORT=1445
+SMB2_HOST_PORT=445
+SMB2_SHARE=public
+SMB2_USER=testuser
+SMB2_PASS=testpass
 ```
 
-Note: the bundled libsmb2 wrapper does not currently expose a port-override, so non-default ports require either a wrapper extension or running tests against the canonical 445.
+The container binds `127.0.0.1` only. If port 445 is taken (macOS File Sharing, another SMB server), set another `SMB2_HOST_PORT` in `.env.test`: the tests connect to `127.0.0.1:<port>`.
 
 ## Teardown
 
 ```bash
-# From test/integration/, with .env.test in place:
-docker compose down            # stop container, keep ./volumes/share
-docker compose down -v         # also wipe the share data
+cd test/integration
+docker compose --env-file .env.test.example down   # stop, keep the share's files
+docker compose --env-file .env.test.example down -v
+rm -rf volumes                                     # the share's files
 ```
 
-`volumes/share/` is the persistent storage backing the SMB share. Gitignored.
-
-## What ships with the package
-
-Nothing in `test/integration/` ships to pub.dev — the entire `test/` directory is excluded by `.pubignore`. Contributors clone the GitHub repo and run the steps above.
+Nothing in `test/` ships to pub.dev.
