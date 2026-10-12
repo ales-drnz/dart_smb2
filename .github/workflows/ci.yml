@@ -1,0 +1,189 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Until a libsmb2 release is published, set the repository variable
+# LIBSMB2_SCRIPTS_RUN to the libsmb2-scripts run that built it: the jobs
+# that bundle libsmb2 then take that run's libraries instead of the pinned
+# release (see .github/actions/libsmb2-from-run). It needs the secret
+# LIBSMB2_SCRIPTS_TOKEN, a token with Actions read access on
+# libsmb2-scripts. Unset the variable once the release is out: the run's
+# artifacts expire after 90 days, and main would keep testing them instead
+# of the release.
+env:
+  LIBSMB2_SCRIPTS_RUN: ${{ vars.LIBSMB2_SCRIPTS_RUN }}
+
+jobs:
+  analyze:
+    name: Analyze (Dart ${{ matrix.sdk }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # The declared floor and the current stable.
+        sdk: ['3.10.0', stable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.sdk }}
+      - run: dart pub get
+      - run: dart analyze --fatal-infos
+      - name: Format
+        if: matrix.sdk == 'stable'
+        run: dart format --output=none --set-exit-if-changed lib test example hook tool
+      - name: Publish dry run
+        if: matrix.sdk == 'stable'
+        run: dart pub publish --dry-run
+      - name: Doc dry run
+        if: matrix.sdk == 'stable'
+        run: dart doc --dry-run
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The hook bundles libsmb2 for dart test: the Linux .so, the macOS
+        # slice thinned from the xcframework, the Windows DLL.
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - uses: ./.github/actions/libsmb2-from-run
+        with:
+          run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
+          token: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
+          pubspecs: pubspec.yaml
+      - name: Keep core dumps
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p /tmp/cores
+          sudo sysctl -w kernel.core_pattern=/tmp/cores/core.%p
+      - name: dart test
+        shell: bash
+        run: |
+          ulimit -c unlimited 2>/dev/null || true
+          dart test
+      - name: Native backtraces of crashed test processes
+        if: failure() && runner.os == 'Linux'
+        run: |
+          ls /tmp/cores/core.* >/dev/null 2>&1 || { echo "no core dumps"; exit 0; }
+          sudo apt-get install -y gdb
+          vm="$(dirname "$(command -v dart)")/dartvm"
+          [ -x "$vm" ] || vm="$(command -v dart)"
+          for core in /tmp/cores/core.*; do
+            echo "::group::$core"
+            gdb -batch -ex 'info sharedlibrary' -ex 'thread apply all bt 25' "$vm" "$core" 2>&1 | grep -v '^\[New LWP'
+            echo "::endgroup::"
+          done
+
+  # The suites under test/integration against a real Samba in Docker.
+  integration:
+    name: Integration (Samba)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - uses: ./.github/actions/libsmb2-from-run
+        with:
+          run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
+          token: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
+          pubspecs: pubspec.yaml
+      - name: Start Samba and seed the share
+        run: dart run test/integration/bootstrap.dart
+      - name: dart test -P integration
+        run: dart test -P integration --tags integration
+      - name: Samba logs
+        if: failure()
+        run: docker logs dart-smb2-test
+
+  # A throwaway Flutter app on each platform: the hook must bundle libsmb2
+  # under the package's own name.
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Android
+            os: ubuntu-24.04
+            platform: android
+            command: >-
+              flutter build apk --debug &&
+              test "$(unzip -l build/app/outputs/flutter-apk/app-debug.apk | grep -c 'lib/.*/libdart_smb2.so')" = 3
+          - name: Linux
+            os: ubuntu-24.04
+            platform: linux
+            command: >-
+              flutter build linux --debug &&
+              test -f build/linux/x64/debug/bundle/lib/libdart_smb2.so
+          - name: Windows
+            os: windows-latest
+            platform: windows
+            command: >-
+              flutter build windows --debug &&
+              find build/windows -name dart_smb2.dll | grep -q .
+          - name: macOS
+            os: macos-latest
+            platform: macos
+            command: >-
+              flutter build macos --debug &&
+              test -f build/macos/Build/Products/Debug/smb2_ci_app.app/Contents/Frameworks/libdart_smb2.framework/libdart_smb2
+          - name: iOS
+            os: macos-latest
+            platform: ios
+            command: >-
+              flutter build ios --simulator --debug &&
+              test -f build/ios/iphonesimulator/Runner.app/Frameworks/libdart_smb2.framework/libdart_smb2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        if: matrix.name == 'Android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Linux build dependencies
+        if: matrix.name == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev
+      - name: Create the app
+        shell: bash
+        run: |
+          flutter create --platforms=${{ matrix.platform }} --project-name smb2_ci_app "$RUNNER_TEMP/app"
+          cd "$RUNNER_TEMP/app"
+          flutter pub add "dart_smb2:{\"path\":\"$(cd "$GITHUB_WORKSPACE" && pwd)\"}"
+          cat > lib/main.dart <<'DART'
+          import 'package:dart_smb2/dart_smb2.dart';
+          import 'package:flutter/widgets.dart';
+
+          void main() => runApp(
+            Text('${Smb2Client().isConnected}', textDirection: TextDirection.ltr),
+          );
+          DART
+          rm -rf test
+      - uses: ./.github/actions/libsmb2-from-run
+        with:
+          run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
+          token: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
+          pubspecs: ${{ runner.temp }}/app/pubspec.yaml
+      - name: Build
+        shell: bash
+        working-directory: ${{ runner.temp }}/app
+        run: ${{ matrix.command }}
