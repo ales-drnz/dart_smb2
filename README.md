@@ -25,7 +25,7 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.2.0
+  dart_smb2: ^0.2.1
 ```
 
 ## Platform requirements
@@ -36,24 +36,9 @@ dependencies:
 | iOS | 13.0 | arm64, x86_64 | 271, 235 KB | Yes | Yes |
 | macOS | 10.15 | arm64, x86_64 | 257, 239 KB | Yes | - |
 | Windows | 10 | arm64, x86_64 | 238, 256 KB | Yes | - |
-| Linux | glibc 2.25, built on 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 259, 268 KB | Yes | - |
+| Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 259, 268 KB | Yes | - |
 
 The package needs Dart 3.10, and Flutter 3.38 in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
-
-### How libsmb2 reaches the app
-
-A Dart build hook downloads the libsmb2 build for each target from this repository's releases, checks it against a pinned SHA-256 and bundles it with the app, as `libdart_smb2.so` on Android and Linux, `dart_smb2.dll` on Windows and `libdart_smb2.framework` on iOS and macOS. The first build of each target needs network access; later builds of the same project reuse the download, until `flutter clean` (or a fresh clone) removes it.
-
-For offline builds or a libsmb2 of your own, point the hook at local files in your app's `pubspec.yaml`:
-
-```yaml
-hooks:
-  user_defines:
-    dart_smb2:
-      libsmb2: path/to/libsmb2
-```
-
-The path can be a directory holding files named like the release assets (`libsmb2_android-arm64-v8a.so`, `libsmb2_ios.xcframework.zip` and so on), such as the `release_builds/` folder of [libsmb2-scripts](https://github.com/ales-drnz/libsmb2-scripts), and each target takes its own. A single file is bundled for every target, so it only suits a build for one target and architecture. Local files are bundled without a checksum, and must be builds of the pinned release, `libsmb2-r9` from libsmb2-scripts 0.2.0 or later: an older libsmb2 loads, but reads the stat fields wrong and lacks the lock that lets the workers connect in parallel.
 
 ---
 
@@ -135,10 +120,6 @@ The path can be a directory holding files named like the release assets (`libsmb
 
     </details>
 
-    <details>
-    <summary><a href="#11-the-native-library"><b>11. The native library</b></a></summary>
-
-    </details>
 *   [Permissions](#permissions)
 *   [Project background](#project-background)
 
@@ -149,7 +130,7 @@ The path can be a directory holding files named like the release assets (`libsmb
 <table>
 <tr>
 <td valign="middle" width="48"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/package.png" width="32"></td>
-<td valign="middle" width="45%"><b>Pure Dart</b><br>no Flutter plugin: a <a href="#11-the-native-library">build hook</a> bundles libsmb2 for Android, iOS, Linux, macOS and Windows, checked against pinned SHA-256s.</td>
+<td valign="middle" width="45%"><b>Pure Dart</b><br>no Flutter plugin: a build hook bundles libsmb2 for Android, iOS, Linux, macOS and Windows, checked against pinned SHA-256s.</td>
 <td valign="middle" width="48"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/layers.png" width="32"></td>
 <td valign="middle" width="45%"><b>Worker isolates</b><br><a href="#11-connecting-a-pool"><code>Smb2Pool</code></a> runs one connection per isolate and sends each call to the least busy one; the UI isolate never waits on the network.</td>
 </tr>
@@ -288,7 +269,7 @@ for (final share in shares.where((s) => s.isDisk && !s.isHidden)) {
 await pool.disconnect();
 ```
 
-Each worker finishes the requests it has already been sent, closes its open files and logs off, and its isolate ends; a worker that does not finish within 5 seconds is killed, and its requests fail with a `connection` error. A reconnect in progress is aborted. Calls waiting for a reconnect, and later calls, fail with a `state` error. Nothing outlives the call. A read the killed worker was in the middle of loses its buffer, up to the length it asked for.
+Each worker finishes the requests it has already been sent, closes its open files and logs off, and its isolate ends; a worker that does not finish within 5 seconds is killed. A reconnect in progress is aborted, and later calls fail with a `state` error.
 
 ### 2. Paths
 
@@ -305,7 +286,7 @@ for (final e in entries) {
 }
 ```
 
-The listing carries each entry's metadata, so no request per entry is needed. `.` and `..` are left out. `Smb2Stat.isHidden` reports the server's hidden attribute, as the server sets it: Samba sets it on dot files by default (`hide dot files`), and the library adds no rule of its own.
+The listing carries each entry's metadata, so no request per entry is needed. `.` and `..` are left out. `Smb2Stat.isHidden` reports the server's hidden attribute (Samba sets it on dot files by default).
 
 #### 3.2 Stat, size and existence
 
@@ -386,7 +367,7 @@ await for (final chunk in stream) {
 }
 ```
 
-The stream keeps one file handle open and reads the next chunk while you handle the current one. It waits while its listener is paused, so the stream holds at most two chunks (4 MiB each by default, see `chunkSize`); a chunk you are done with is freed when it is garbage collected, so many streams at once can use a multiple of that for a while. Cancelling the subscription, or the token, closes the handle and stops the read in flight; the subscription's future completes without error.
+The stream keeps one file handle open and reads the next chunk while you handle the current one. It waits while its listener is paused, so at most two chunks (4 MiB each by default, see `chunkSize`) are in memory. Cancelling the subscription or the token closes the handle.
 
 #### 5.2 Downloading to disk
 
@@ -409,7 +390,7 @@ await pool.writeFile('Notes/todo.txt', utf8.encode('buy milk\n'));
 await pool.writeFileRange('Notes/todo.txt', utf8.encode('eggs\n'), offset: 9);
 ```
 
-`writeFile` replaces the file, creating it if needed; `writeFileRange` writes at an offset and leaves the rest of the file as it is. The data is copied once into a native buffer in the calling isolate, at memory speed (about 9 ms for 64 MiB); for large writes from the UI isolate, prefer `streamWrite` with chunks of a few MiB.
+`writeFile` replaces the file, creating it if needed; `writeFileRange` writes at an offset and leaves the rest of the file as it is. The data is copied into a native buffer in the calling isolate: for large writes from the UI isolate, prefer `streamWrite`.
 
 #### 6.2 Streaming a write
 
@@ -451,11 +432,11 @@ await pool.deleteFile('Backup/2026/log.bin');
 await pool.rmdir('Backup/2026');
 ```
 
-`rmdir` fails with `notEmpty` while the directory has entries, and with `notADirectory` on a file; `deleteFile` fails with `isADirectory` on a directory and on a link to one: remove those with `rmdir` (Windows junctions and directory symlinks), though Samba cannot remove a directory symlink over SMB2 at all. Set times after the file's write handles are closed: the server refreshes the modified time on write and close.
+`rmdir` fails with `notEmpty` while the directory has entries and with `notADirectory` on a file; `deleteFile` fails with `isADirectory` on a directory, or a link to one, which `rmdir` removes. Set times after the file's write handles are closed: the server refreshes the modified time on write and close.
 
 ### 8. Cancellation
 
-Every call on a connected pool takes an `Smb2CancelToken`, except `closeHandle`, `disconnect` and the deprecated `listShares`. A cancelled call throws an `Smb2Exception` of type `cancelled` at once, also while it waits for a reconnect; a request the worker already sent finishes on the server and its result is dropped, and a file it opened is closed.
+Every call on a connected pool takes an `Smb2CancelToken`, except `closeHandle` and `disconnect`. A cancelled call throws an `Smb2Exception` of type `cancelled` at once, also while it waits for a reconnect; a request the worker already sent finishes on the server and its result is dropped, and a file it opened is closed.
 
 ```dart
 final token = Smb2CancelToken();
@@ -487,7 +468,7 @@ Every failure is an `Smb2Exception`. Its `type` comes from the NT status the ser
 | :--- | :--- |
 | `connection` | The connection failed or was lost, the host name does not resolve, or the server dropped the session or a handle |
 | `timeout` | The server did not answer within the timeout |
-| `auth` | Wrong credentials, or the account cannot log on. A server that maps unknown users to guest refuses them at the share with `accessDenied` instead |
+| `auth` | Wrong credentials, or the account cannot log on |
 | `notFound` | The path or the share does not exist |
 | `accessDenied` | No permission for the operation |
 | `notADirectory`, `isADirectory` | A file where a directory was expected, or the opposite |
@@ -517,13 +498,13 @@ try {
 }
 ```
 
-`isNetworkFailure` covers `connection` and `timeout`: the connection, the session or a handle was lost, or the server did not answer, and a reconnect may recover. `isTransient` adds `inUse`. `ntStatus` and `errno` keep the raw codes: `ntStatus` only when the server answered this call with it (libsmb2 keeps the status of earlier calls around), and `errno` for an open or a listing comes from that status. Both are null for a transport failure.
+`isNetworkFailure` covers `connection` and `timeout`; `isTransient` adds `inUse`. `ntStatus` and `errno` keep the raw codes.
 
 #### 9.2 Reconnects
 
 <img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/diagrams/reconnect.png" width="100%" alt="A reconnect: the worker loses the connection, the pool spawns and connects a new worker and sends the call again, and the result reaches your code">
 
-When a call fails with a network failure, the pool replaces the worker with a new connection — once, however many calls saw it fail — and repeats the call when repeating cannot change the outcome: reads, listings, metadata, writes at an offset, whole-file writes, truncates and timestamps. `mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated, because the server may have done them before the connection dropped; their error reaches you and the next call uses the new connection. Open handles are reopened on the new worker before their next call. When the new connection cannot be made, the call is repeated on another worker, and the slot tries again in the background, after 1, 2, 4 and up to 32 seconds, when the network failed. When the server refused the connection (credentials, the share), the pool keeps that answer for 5 minutes: calls that need a new connection get it at once without asking the server, and one login is tried per interval, however many workers and calls.
+When a call fails with a network failure, the pool replaces the worker with a new connection — once, however many calls saw it fail — and repeats the call when repeating cannot change the outcome: reads, listings, metadata, writes at an offset, whole-file writes, truncates and timestamps. `mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated, because the server may have done them before the connection dropped; their error reaches you and the next call uses the new connection. Open handles are reopened on the new worker before their next call. While a worker cannot reconnect, the others take its calls and it keeps trying in the background; after a refused login, once every 5 minutes.
 
 ### 10. The synchronous client
 
@@ -543,12 +524,6 @@ final summary = await Isolate.run(() {
 ```
 
 It has the pool's methods, without the `Future`s and the cancel tokens: `openFile`, `readFromHandle`, `writeToHandle`, `closeHandle` and so on, plus `readFileChunked` and `writeFileChunked` over iterables. `Smb2Client.listShares` is static and needs no connection. A client dropped without `disconnect()` frees its connection when it is garbage collected, without a logoff.
-
-### 11. The native library
-
-<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/diagrams/hook.png" width="100%" alt="The build hook takes the libsmb2 release binary for the target, checked against its SHA-256, or a local build from hooks.user_defines as it is, and bundles it as libdart_smb2">
-
-The binaries come from [libsmb2-scripts](https://github.com/ales-drnz/libsmb2-scripts), which builds the upstream [libsmb2](https://github.com/sahlberg/libsmb2) commit it pins with a set of patches, on GitHub's runners, and publishes them with a `manifest.json` on this repository's `libsmb2-rN` releases. libsmb2 is licensed under the LGPL-2.1 or later: each release names the libsmb2-scripts commit it was built from, the corresponding source of its binaries, and carries the license texts (`COPYING`, `LICENCE-LGPL-2.1.txt`). An app that ships dart_smb2 ships libsmb2 too, so it should include those texts and point to that source (the package's [NOTICE](NOTICE) says so), and the `user_defines` override above lets anyone swap in another build.
 
 ---
 
@@ -573,7 +548,7 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 
 ## Project background
 
-I wrote the bindings, the client, the pool and the build hook with Claude Code. The native library is [libsmb2](https://github.com/sahlberg/libsmb2) by Ronnie Sahlberg.
+I wrote the bindings, the client, the pool and the build hook with Claude Code. The native library is [libsmb2](https://github.com/sahlberg/libsmb2) by Ronnie Sahlberg, licensed under the LGPL-2.1: see [NOTICE](NOTICE) for what an app that bundles it should include.
 
 Samba is a trademark of the Software Freedom Conservancy, and Windows a trademark of Microsoft. dart_smb2 is not affiliated with either.
 

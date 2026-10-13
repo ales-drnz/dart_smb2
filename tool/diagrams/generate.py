@@ -211,20 +211,6 @@ def streaming(t):
     return d
 
 
-def hook(t):
-    d = D('hook', 900, 300, t, 'The build hook bundles libsmb2 for the target')
-    d.node(150, 80, 230, 60, 'libsmb2-r9 release', 'one binary per target', role='neutral', mono=False)
-    d.node(150, 220, 230, 60, 'hooks.user_defines', 'a local build instead', role='app')
-    d.node(500, 150, 230, 64, 'hook/build.dart', "picks the target's binary", role='lib')
-    d.node(790, 150, 200, 64, 'libdart_smb2', 'code asset in the app', role='lib')
-    d.arrow('M265,80 L335,80 L335,135 L383,135'); d.arrow('M265,220 L335,220 L335,165 L383,165', kind='sec')
-    d.text(346, 105, 'SHA-256 checked', anchor='start', size=11)
-    d.text(346, 203, 'no checksum', anchor='start', size=11)
-    d.arrow('M615,150 L688,150'); d.text(651, 137, 'bundle', size=11)
-    d.text(500, 245, 'Android, iOS, Linux, macOS, Windows', size=11)
-    return d
-
-
 def icon_svg():
     """The package icon: an S drawn as two opposite arrows, white on a full
     navy disc.
@@ -280,7 +266,7 @@ def check_icon(png):
     return cx, cy, ys[-1] - ys[0] + 1, asym, area
 
 
-ALL = [architecture, pool_lifecycle, reconnect, streaming, hook]
+ALL = [architecture, pool_lifecycle, reconnect, streaming]
 
 problems = []
 os.makedirs(OUT, exist_ok=True)

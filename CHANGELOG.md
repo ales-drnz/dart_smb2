@@ -1,3 +1,8 @@
+## [0.2.1] - 13-10-2026
+
+### Docs
+- Changes to the README.
+
 ## [0.2.0] - 13-10-2026
 
 A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the changes to make in an app.

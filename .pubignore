@@ -18,9 +18,10 @@ pubspec.lock
 .claude/
 CLAUDE.md
 
-# Tests
+# Tests, and the pool's fault injection only they import
 /test/
 dart_test.yaml
+/lib/src/pool/test_hooks.dart
 
 # Images stay on GitHub: the README loads the diagrams from there. Only
 # the icon ships, as the pubspec screenshot.
