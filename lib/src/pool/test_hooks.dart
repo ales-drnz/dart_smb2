@@ -30,4 +30,7 @@ extension WorkerFaults on Worker {
 
   /// The next handle read returns no bytes.
   Future<void> emptyReadNext() => call<void>(Op.injectEmptyRead, const []);
+
+  /// How many files the worker holds open.
+  Future<int> handleCount() => call<int>(Op.injectHandleCount, const []);
 }

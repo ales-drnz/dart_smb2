@@ -6,10 +6,7 @@
 /// its [Worker] proxy in order.
 library;
 
-import 'dart:ffi';
 import 'dart:isolate';
-
-import 'package:ffi/ffi.dart';
 
 import '../smb2_client.dart';
 import '../smb2_error_type.dart';
@@ -21,6 +18,7 @@ import 'worker.dart';
 /// [Failure] with id -1 when the connection (or loading libsmb2) fails.
 void workerMain(Init init) {
   final replies = init.replies;
+  if (init.exitBeforeConnect) Isolate.exit();
   final Smb2Client client;
   try {
     final p = init.params;
@@ -49,9 +47,7 @@ void workerMain(Init init) {
 
   final commands = ReceivePort();
   final server = _Server(client, replies, commands);
-  replies.send(
-    Ready(commands.sendPort, client.maxReadSize, client.maxWriteSize),
-  );
+  replies.send(Ready(commands.sendPort));
   commands.listen((Object? message) => server.handle(message! as Request));
 }
 
@@ -70,7 +66,7 @@ final class _Server {
   _Server(this.client, this.replies, this.commands);
 
   void handle(Request r) {
-    if (!r.op.name.startsWith('inject')) {
+    if (!r.op.isInjection) {
       if (hangNext) {
         hangNext = false;
         return;
@@ -84,7 +80,6 @@ final class _Server {
             type: Smb2ErrorType.connection,
           ),
         );
-        _releaseArgs(r);
         return;
       }
     }
@@ -101,15 +96,6 @@ final class _Server {
 
   void _fail(Request r, Smb2Exception e) {
     if (r.id != 0) replies.send(Failure(r.id, e));
-  }
-
-  /// Frees the native buffer a write request carries, when it is not run.
-  void _releaseArgs(Request r) {
-    if (r.op == Op.writeFile ||
-        r.op == Op.writeRange ||
-        r.op == Op.writeHandle) {
-      malloc.free(Pointer<Uint8>.fromAddress(r.args[1]! as int));
-    }
   }
 
   Smb2Handle _handle(Object? id, String what) {
@@ -157,19 +143,20 @@ final class _Server {
           client.closeHandle(h);
         }
       case Op.writeFile || Op.writeRange:
-        final buffer = a[1]! as int;
+        // The buffer stays the main isolate's, which frees it on the reply.
+        final h = client.openFileWrite(
+          a[0]! as String,
+          truncate: r.op == Op.writeFile,
+        );
         try {
-          final h = client.openFileWrite(
-            a[0]! as String,
-            truncate: r.op == Op.writeFile,
+          client.writeNative(
+            h,
+            a[1]! as int,
+            a[2]! as int,
+            offset: a[3]! as int,
           );
-          try {
-            client.writeNative(h, buffer, a[2]! as int, offset: a[3]! as int);
-          } finally {
-            client.closeHandle(h);
-          }
         } finally {
-          malloc.free(Pointer<Uint8>.fromAddress(buffer));
+          client.closeHandle(h);
         }
         return null;
       case Op.mkdir:
@@ -219,17 +206,12 @@ final class _Server {
           client.readNative(h, offset: a[1]! as int, length: a[2]! as int),
         );
       case Op.writeHandle:
-        final buffer = a[1]! as int;
-        try {
-          client.writeNative(
-            _handle(a[0], 'Write'),
-            buffer,
-            a[2]! as int,
-            offset: a[3]! as int,
-          );
-        } finally {
-          malloc.free(Pointer<Uint8>.fromAddress(buffer));
-        }
+        client.writeNative(
+          _handle(a[0], 'Write'),
+          a[1]! as int,
+          a[2]! as int,
+          offset: a[3]! as int,
+        );
         return null;
       case Op.fsyncHandle:
         client.fsyncHandle(_handle(a[0], 'Fsync'));
@@ -254,6 +236,8 @@ final class _Server {
       case Op.injectEmptyRead:
         emptyReadNext = true;
         return null;
+      case Op.injectHandleCount:
+        return handles.length;
     }
   }
 }

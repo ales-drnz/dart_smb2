@@ -30,6 +30,12 @@ final class Slot {
   /// The replacement being connected, while there is one.
   Future<Worker>? reconnecting;
 
+  /// The background retry after a failed reconnect, while one is due.
+  Timer? retry;
+
+  /// Reconnects that failed in a row, for the retry's backoff.
+  int failures = 0;
+
   /// A slot served by [worker].
   Slot(this.worker);
 }
@@ -67,6 +73,14 @@ final class Smb2PoolHandle {
 
   /// Whether [Smb2Pool.closeHandle] was called on the handle.
   bool get isClosed => _closed;
+
+  /// Same as [isClosed].
+  @Deprecated('Use isClosed. Will be removed in 0.3.0.')
+  bool get closed => _closed;
+
+  /// Does nothing: the pool keeps the finalizer up to date by itself.
+  @Deprecated('Not needed any more. Will be removed in 0.3.0.')
+  void refreshFinalizer() {}
 
   static final _finalizer = Finalizer<_Leak>(
     (leak) => leak.worker.post(Op.closeHandle, [leak.id]),
@@ -146,7 +160,7 @@ final class Smb2File {
 
   /// Wraps an open pool handle for the callback of [Smb2Pool.withFile].
   @internal
-  Smb2File(this._pool, this._handle, this.size, this._cancelToken);
+  Smb2File(this._pool, this._handle, this.size, [this._cancelToken]);
 
   /// The share-relative path of the file.
   String get path => _handle.path;

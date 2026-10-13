@@ -24,61 +24,76 @@ import 'worker_main.dart';
 ///
 /// Requests run one at a time, in the order sent. Every reply comes back
 /// on one port and is matched to its request by id.
+///
+/// The native buffer of a write belongs to this side: the worker only
+/// reads it, and it is freed here when the reply arrives, when the request
+/// is never sent, or once the isolate has exited — never while the worker
+/// may still be writing it out.
 final class Worker {
   final Isolate _isolate;
   final RawReceivePort _port;
   final SendPort _commands;
 
-  /// The largest read the server accepts in one request.
-  final int maxReadSize;
-
-  /// The largest write the server accepts in one request.
-  final int maxWriteSize;
-
   final Map<int, _Pending<Object?>> _pending = {};
 
   /// Requests whose caller gave up (cancelled): their replies are freed on
   /// arrival.
-  final Map<int, Op> _abandoned = {};
+  final Map<int, _Abandoned> _abandoned = {};
+
+  /// Write buffers of requests the isolate never answered: freed once it
+  /// has exited.
+  final List<int> _orphans = [];
   int _nextId = 1;
   bool _dead = false;
+  bool _exited = false;
   Completer<void>? _closing;
 
-  Worker._(
-    this._isolate,
-    this._port,
-    this._commands,
-    this.maxReadSize,
-    this.maxWriteSize,
-  );
+  Worker._(this._isolate, this._port, this._commands);
 
   /// Workers spawning or alive, in this isolate. For tests that check
   /// nothing outlives a pool.
   @visibleForTesting
   static int debugAlive = 0;
 
+  /// Makes the next spawned workers exit before connecting, as a crash
+  /// would. For tests.
+  @visibleForTesting
+  static bool debugExitBeforeConnect = false;
+
   /// Whether the isolate has exited, or [close] was called.
   bool get isDead => _dead;
 
-  /// Requests sent and not answered yet.
-  int get load => _pending.length;
+  /// Whether the worker takes requests: not dead and not closing.
+  bool get isUsable => !_dead && _closing == null;
+
+  /// Requests sent and not answered yet, those whose caller cancelled
+  /// included: the worker still runs them, in order.
+  int get load => _pending.length + _abandoned.length;
 
   /// Spawns a worker and waits until it is connected.
   ///
   /// Throws the connection's own [Smb2Exception] (auth, not found, ...)
   /// when it fails, and one of type [Smb2ErrorType.connection] when the
   /// isolate dies first, for example because libsmb2 cannot be loaded.
-  static Future<Worker> spawn(ConnectParams params) async {
+  /// When [abort] completes first, the isolate is killed and the spawn
+  /// fails with a [Smb2ErrorType.state] error.
+  static Future<Worker> spawn(
+    ConnectParams params, {
+    Future<void>? abort,
+  }) async {
     debugAlive++;
     try {
-      return await _spawn(params);
+      return await _spawn(params, abort);
     } catch (_) {
       debugAlive--;
       rethrow;
     }
   }
 
-  static Future<Worker> _spawn(ConnectParams params) async {
+  static Future<Worker> _spawn(
+    ConnectParams params,
+    Future<void>? abort,
+  ) async {
     final first = Completer<Object?>();
     final port = RawReceivePort((Object? m) {
       if (!first.isCompleted) first.complete(m);
@@ -87,7 +102,7 @@ final class Worker {
     try {
       isolate = await Isolate.spawn(
         workerMain,
-        Init(port.sendPort, params),
+        Init(port.sendPort, params, exitBeforeConnect: debugExitBeforeConnect),
         onExit: port.sendPort,
         onError: port.sendPort,
         debugName: 'dart_smb2 worker',
@@ -106,19 +121,17 @@ final class Worker {
     final limit = params.timeout + const Duration(seconds: 15);
     Object? reply;
     try {
-      reply = await first.future.timeout(limit);
+      reply =
+          await (abort == null
+                  ? first.future
+                  : Future.any([first.future, abort.then((_) => _aborted)]))
+              .timeout(limit);
     } on TimeoutException {
-      reply = null;
+      reply = _timedOut;
     }
 
     if (reply is Ready) {
-      final worker = Worker._(
-        isolate,
-        port,
-        reply.commands,
-        reply.maxReadSize,
-        reply.maxWriteSize,
-      );
+      final worker = Worker._(isolate, port, reply.commands);
       port.handler = worker._receive;
       return worker;
     }
@@ -126,8 +139,12 @@ final class Worker {
     isolate.kill(priority: Isolate.immediate);
     port.close();
     throw switch (reply) {
+      _aborted => const Smb2Exception(
+        'The pool closed while the worker was connecting',
+        type: Smb2ErrorType.state,
+      ),
       Failure() => reply.toException(),
-      null => Smb2Exception(
+      _timedOut => Smb2Exception(
         'The worker did not connect within $limit',
         type: Smb2ErrorType.timeout,
       ),
@@ -151,27 +168,43 @@ final class Worker {
   /// When [cancelToken] is cancelled first, completes with the
   /// cancellation at once; the worker still finishes the request, and its
   /// result is freed (a handle it opened is closed).
+  ///
+  /// A write's native buffer (`args[1]`) is the worker's to free from then
+  /// on, whatever happens to the request.
+  ///
+  /// Once [close] has started, fails at once with a
+  /// [Smb2ErrorType.connection] error, like a dead worker: the worker
+  /// would never run the request.
   Future<T> call<T>(
     Op op,
     List<Object?> args, {
     Smb2CancelToken? cancelToken,
     String? path,
+  }) => _send(op, args, cancelToken: cancelToken, path: path);
+
+  Future<T> _send<T>(
+    Op op,
+    List<Object?> args, {
+    Smb2CancelToken? cancelToken,
+    String? path,
+    bool closing = false,
   }) {
+    final buffer = _writeBuffer(op, args);
     if (cancelToken != null && cancelToken.isCancelled) {
-      _releaseArgs(op, args);
+      _free(buffer);
       return Future.error(cancelToken.cancelledException(path: path));
     }
-    if (_dead) {
-      _releaseArgs(op, args);
+    if (_dead || (_closing != null && !closing)) {
+      _free(buffer);
       return Future.error(_gone(path));
     }
     final id = _nextId++;
-    final pending = _Pending<T>(op, path);
+    final pending = _Pending<T>(op, path, buffer);
     _pending[id] = pending;
     if (cancelToken != null) {
       pending.unregister = cancelToken.register(() {
         if (_pending.remove(id) == null) return;
-        _abandoned[id] = op;
+        _abandoned[id] = _Abandoned(op, buffer);
         pending.completer.completeError(
           cancelToken.cancelledException(path: path),
         );
@@ -181,7 +214,7 @@ final class Worker {
     return pending.completer.future;
   }
 
-  /// Sends [op] without waiting for a reply.
+  /// Sends [op], which carries no buffer, without waiting for a reply.
   void post(Op op, List<Object?> args) {
     if (_dead) return;
     _commands.send(Request(0, op, args));
@@ -192,33 +225,52 @@ final class Worker {
       case Reply(:final id, :final value):
         final pending = _pending.remove(id);
         if (pending == null) {
-          _dispose(_abandoned.remove(id), value);
+          final abandoned = _abandoned.remove(id);
+          _free(abandoned?.buffer);
+          _dispose(abandoned?.op, value);
           return;
         }
+        _free(pending.buffer);
         pending.unregister?.call();
-        pending.complete(_unwrap(value));
+        if (_dead) {
+          _dispose(pending.op, value);
+        } else {
+          pending.complete(_unwrap(value));
+        }
       case Failure(:final id):
-        _abandoned.remove(id);
+        _free(_abandoned.remove(id)?.buffer);
         final pending = _pending.remove(id);
+        _free(pending?.buffer);
         pending?.unregister?.call();
         pending?.completer.completeError(message.toException());
+      case null:
+        // onExit: the isolate is gone, and with it any use of the buffers.
+        _markDead(null);
+        _exited = true;
+        _orphans.forEach(_free);
+        _orphans.clear();
+        _port.close();
       default:
-        // onError ([error, stack]) or onExit (null): the isolate is gone.
+        // onError ([error, stack]): the isolate is ending; onExit follows.
         _markDead(message);
     }
   }
 
   /// Asks the worker to close its handles and log off, then ends the
   /// isolate. The logoff gets 5 seconds; a worker stuck in a call is
-  /// killed. Requests still pending fail with a connection error.
+  /// killed. Requests sent before it finish first; requests still pending
+  /// when the worker is killed fail with a [Smb2ErrorType.connection]
+  /// error, and their buffers are freed once the isolate has exited. A read
+  /// the worker was in the middle of when killed loses its buffer.
   Future<void> close() async {
     if (_closing != null) return _closing!.future;
     final closing = _closing = Completer<void>();
     if (!_dead) {
       try {
-        await call<void>(
+        await _send<void>(
           Op.close,
           const [],
+          closing: true,
         ).timeout(const Duration(seconds: 5));
       } catch (_) {
         // Dead, stuck or failing: kill it below either way.
@@ -236,6 +288,14 @@ final class Worker {
     _markDead(null);
   }
 
+  /// Write buffers held for requests the isolate never answered. For
+  /// tests.
+  @visibleForTesting
+  int get debugHeldBuffers =>
+      _orphans.length +
+      _pending.values.where((p) => p.buffer != null).length +
+      _abandoned.values.where((a) => a.buffer != null).length;
+
   void _markDead(Object? cause) {
     if (_dead) return;
     _dead = true;
@@ -243,10 +303,22 @@ final class Worker {
     final pending = _pending.values.toList();
     _pending.clear();
     for (final p in pending) {
+      if (p.buffer != null) _orphans.add(p.buffer!);
       p.unregister?.call();
       p.completer.completeError(_gone(p.path, cause));
     }
-    _port.close();
+    for (final a in _abandoned.values) {
+      if (a.buffer != null) _orphans.add(a.buffer!);
+    }
+    _abandoned.clear();
+    if (_exited) {
+      _orphans.forEach(_free);
+      _orphans.clear();
+    } else {
+      // Wait for onExit to free the orphans, without keeping this isolate
+      // alive for a worker that never exits.
+      _port.keepIsolateAlive = false;
+    }
   }
 
   Smb2Exception _gone(String? path, [Object? cause]) => Smb2Exception(
@@ -269,6 +341,12 @@ final class Worker {
   }
 }
 
+/// The reply a spawn gets when it is aborted.
+const Object _aborted = #aborted;
+
+/// The reply a spawn gets when the worker never answers.
+const Object _timedOut = #timedOut;
+
 /// Wraps a [NativeBytes] reply as a [Uint8List] that frees the buffer when
 /// it is collected.
 Object? _unwrap(Object? value) => switch (value) {
@@ -279,19 +357,27 @@ Object? _unwrap(Object? value) => switch (value) {
   _ => value,
 };
 
-/// Frees the native buffer of a write that is never sent.
-void _releaseArgs(Op op, List<Object?> args) {
-  if (op == Op.writeFile || op == Op.writeRange || op == Op.writeHandle) {
-    malloc.free(Pointer<Uint8>.fromAddress(args[1]! as int));
-  }
+/// The native buffer a write request carries, if [op] is a write.
+int? _writeBuffer(Op op, List<Object?> args) =>
+    op.carriesBuffer ? args[1]! as int : null;
+
+void _free(int? buffer) {
+  if (buffer != null) malloc.free(Pointer<Uint8>.fromAddress(buffer));
 }
 
 final class _Pending<T> {
   final Op op;
   final String? path;
+  final int? buffer;
   final Completer<T> completer = Completer<T>();
   void Function()? unregister;
-  _Pending(this.op, this.path);
+  _Pending(this.op, this.path, this.buffer);
 
   void complete(Object? value) => completer.complete(value as T);
+}
+
+final class _Abandoned {
+  final Op op;
+  final int? buffer;
+  const _Abandoned(this.op, this.buffer);
 }

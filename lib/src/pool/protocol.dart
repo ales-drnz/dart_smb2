@@ -94,12 +94,22 @@ enum Op {
   injectHang,
 
   /// Test only: the next readHandle returns no bytes.
-  injectEmptyRead;
+  injectEmptyRead,
+
+  /// Test only: replies how many files the worker holds open.
+  injectHandleCount;
 
   /// Whether a successful reply carries a handle id the worker opened,
   /// which must be closed when nobody waits for it any more.
   bool get opensHandle =>
       this == open || this == openWithSize || this == openWrite;
+
+  /// Whether the request carries a native buffer in `args[1]`.
+  bool get carriesBuffer =>
+      this == writeFile || this == writeRange || this == writeHandle;
+
+  /// Whether the op is a test-only fault injection.
+  bool get isInjection => index >= injectFailures.index;
 }
 
 /// The connection settings, kept by the pool for every (re)spawn.
@@ -153,8 +163,11 @@ final class Init {
   /// What to connect to.
   final ConnectParams params;
 
+  /// Test only: the worker exits before connecting.
+  final bool exitBeforeConnect;
+
   /// The argument of a worker for [params].
-  const Init(this.replies, this.params);
+  const Init(this.replies, this.params, {this.exitBeforeConnect = false});
 }
 
 /// The worker's first message once connected.
@@ -162,14 +175,8 @@ final class Ready {
   /// Where the main isolate sends [Request]s.
   final SendPort commands;
 
-  /// The negotiated MaxReadSize.
-  final int maxReadSize;
-
-  /// The negotiated MaxWriteSize.
-  final int maxWriteSize;
-
   /// The connected worker's first message.
-  const Ready(this.commands, this.maxReadSize, this.maxWriteSize);
+  const Ready(this.commands);
 }
 
 /// A request. [id] 0 asks for no reply.
