@@ -10,6 +10,7 @@ library;
 
 import 'dart:async';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_smb2/dart_smb2.dart';
@@ -228,8 +229,12 @@ void main() {
         final failing = pool.stat(seedFile);
         await eventually(() => old.isDead);
         final waiting = pool.stat(seedFile);
+        final dir = scratch.path('made_during_reconnect');
+        final making = pool.mkdir(dir);
         expect((await failing).size, seedSize);
         expect((await waiting).size, seedSize);
+        await making;
+        expect(await pool.exists(dir), isTrue);
         expect(identical(poolWorkers(pool).single, old), isFalse);
       } finally {
         await pool.disconnect();
@@ -304,6 +309,7 @@ void main() {
       final pool = await connectPool(workers: 1);
       final w = poolWorkers(pool).single;
       final closing = w.close();
+      final freed = Worker.debugBuffersFreed;
       await expectLater(
         w.call<void>(Op.writeFile, [
           scratch.path('closing.bin'),
@@ -314,6 +320,7 @@ void main() {
         throwsType(Smb2ErrorType.connection),
       );
       expect(w.debugHeldBuffers, 0);
+      expect(Worker.debugBuffersFreed - freed, 1);
       await closing;
       await pool.disconnect();
     });
@@ -327,6 +334,7 @@ void main() {
           timeout: const Duration(seconds: 2),
         );
         final w = poolWorkers(pool).single;
+        final freed = Worker.debugBuffersFreed;
         proxy.freeze();
         final writes = [
           for (var i = 0; i < 4; i++)
@@ -345,6 +353,7 @@ void main() {
         // The worker may still be in the frozen write; once its timeout lets
         // it return, the isolate exits and every buffer is freed.
         await eventually(() => w.debugHeldBuffers == 0);
+        expect(Worker.debugBuffersFreed - freed, 4);
         proxy.thaw();
         await pool.disconnect();
       },
@@ -354,8 +363,11 @@ void main() {
       final pool = await connectPool(workers: 1);
       try {
         final w = poolWorkers(pool).single;
+        final freed = Worker.debugBuffersFreed;
         await pool.writeFile(scratch.path('replied.bin'), Uint8List(1024));
+        await pool.writeFileRange(scratch.path('replied.bin'), Uint8List(8));
         expect(w.debugHeldBuffers, 0);
+        expect(Worker.debugBuffersFreed - freed, 2);
       } finally {
         await pool.disconnect();
       }
@@ -373,10 +385,287 @@ void main() {
     }
   });
 
+  group('handles and reconnects', () {
+    test('a handle closed while it is opened again is not used', () async {
+      final pool = await connectPool(workers: 1);
+      try {
+        final a = await pool.openFileWrite(scratch.path('closed_a.bin'));
+        // A reconnect makes a stale; the next call on it reopens it.
+        await poolWorkers(pool).single.failNext(1);
+        await pool.stat(seedFile);
+        // A file on the new worker, likely under a's old id.
+        final victimPath = scratch.path('victim.bin');
+        await pool.writeFile(victimPath, Uint8List.fromList('VVVV'.codeUnits));
+        final victim = await pool.openFileWrite(victimPath);
+        final write = pool.writeToHandle(a, Uint8List.fromList('XX'.codeUnits));
+        await pool.closeHandle(a);
+        await expectLater(write, throwsType(Smb2ErrorType.state));
+        await pool.closeHandle(victim);
+        expect(String.fromCharCodes(await pool.readFile(victimPath)), 'VVVV');
+      } finally {
+        await pool.disconnect();
+      }
+    });
+
+    test(
+      'a worker that crashes is reconnected without a failed call',
+      () async {
+        final pool = await connectPool();
+        try {
+          final w = poolWorkers(pool).first;
+          w.crash();
+          await eventually(
+            () =>
+                !identical(poolWorkers(pool).first, w) &&
+                poolWorkers(pool).every((x) => x.isUsable),
+          );
+        } finally {
+          await pool.disconnect();
+        }
+      },
+    );
+
+    test(
+      'a cancelled request that hits a network failure reconnects',
+      () async {
+        final pool = await connectPool(workers: 1);
+        try {
+          final w = poolWorkers(pool).single;
+          await w.failNext(1);
+          final token = Smb2CancelToken();
+          final abandoned = pool.stat(seedFile, cancelToken: token);
+          token.cancel();
+          await expectLater(abandoned, throwsType(Smb2ErrorType.cancelled));
+          await eventually(() => !identical(poolWorkers(pool).single, w));
+        } finally {
+          await pool.disconnect();
+        }
+      },
+    );
+
+    test('a call that finds no worker says why the reconnect failed', () async {
+      final pool = await connectPool(workers: 1, host: proxy.host);
+      try {
+        proxy
+          ..mode = ProxyMode.refuse
+          ..drop();
+        await expectLater(
+          pool.stat(seedFile),
+          throwsA(
+            isA<Smb2Exception>()
+                .having((e) => e.isNetworkFailure, 'isNetworkFailure', isTrue)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  isNot(contains('worker isolate is gone')),
+                ),
+          ),
+        );
+      } finally {
+        proxy.mode = ProxyMode.forward;
+        await pool.disconnect();
+      }
+    });
+
+    test('a timeout below a second bounds a request', () async {
+      final pool = await connectPool(
+        workers: 1,
+        host: proxy.host,
+        timeout: const Duration(milliseconds: 500),
+      );
+      try {
+        // The frozen request times out (500 ms rounds up to 1 s, not down
+        // to none), and the repeat goes over a new connection.
+        proxy.freeze();
+        final watch = Stopwatch()..start();
+        await pool.echo();
+        expect(watch.elapsed, lessThan(const Duration(seconds: 8)));
+      } finally {
+        proxy.thaw();
+        await pool.disconnect();
+      }
+    });
+
+    test('a worker that never answers fails the spawn with timeout', () async {
+      Worker.debugNeverReady = true;
+      Worker.debugSpawnMargin = const Duration(seconds: 1);
+      try {
+        await expectLater(
+          connectPool(workers: 1, timeout: const Duration(seconds: 1)),
+          throwsType(Smb2ErrorType.timeout),
+        );
+      } finally {
+        Worker.debugNeverReady = false;
+        Worker.debugSpawnMargin = const Duration(seconds: 15);
+      }
+    });
+  });
+
+  group('cancel on a stuck network', () {
+    late Smb2Pool pool;
+    setUp(
+      () async => pool = await connectPool(
+        workers: 1,
+        host: proxy.host,
+        timeout: const Duration(seconds: 8),
+      ),
+    );
+    tearDown(() async {
+      proxy.thaw();
+      await pool.disconnect();
+    });
+
+    /// Freezes the network once [call] has received its first chunk, then
+    /// cancels: the call must end within a second.
+    Future<void> endsAtOnce(
+      Future<Object?> Function(Smb2CancelToken token, void Function() first)
+      call,
+    ) async {
+      final token = Smb2CancelToken();
+      final sinceCancel = Stopwatch();
+      var frozen = false;
+      void first() {
+        if (frozen) return;
+        frozen = true;
+        proxy.freeze();
+        Timer(const Duration(milliseconds: 300), () {
+          sinceCancel.start();
+          token.cancel();
+        });
+      }
+
+      await expectLater(
+        call(token, first).whenComplete(sinceCancel.stop),
+        throwsType(Smb2ErrorType.cancelled),
+      );
+      expect(sinceCancel.elapsed, lessThan(const Duration(seconds: 1)));
+    }
+
+    test('downloadToFile', () async {
+      final dir = await Directory.systemTemp.createTemp('dart_smb2_');
+      try {
+        await endsAtOnce(
+          (token, first) => pool.downloadToFile(
+            seedFile,
+            '${dir.path}/out.bin',
+            chunkSize: 64 * 1024,
+            cancelToken: token,
+            onProgress: (_, _) => first(),
+          ),
+        );
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    });
+
+    test('streamFile', () async {
+      await endsAtOnce(
+        (token, first) => pool
+            .streamFile(seedFile, chunkSize: 64 * 1024, cancelToken: token)
+            .map((_) => first())
+            .drain<void>(),
+      );
+    });
+
+    test('withFile', () async {
+      await endsAtOnce(
+        (token, first) => pool.withFile(seedFile, (file) async {
+          await file.read(length: 1024);
+          first();
+          return file.read(offset: 1024, length: 1024);
+        }, cancelToken: token),
+      );
+    });
+  });
+
   group('streamFile', () {
     late Smb2Pool pool;
     setUp(() async => pool = await connectPool(workers: 1));
     tearDown(() => pool.disconnect());
+
+    test('cancelling the subscription stops the reads', () async {
+      final w = poolWorkers(pool).single;
+      final first = Completer<void>();
+      final sub = pool.streamFile(seedFile, chunkSize: 64 * 1024).listen((_) {
+        if (!first.isCompleted) first.complete();
+      });
+      await first.future;
+      final watch = Stopwatch()..start();
+      await sub.cancel();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+      await w.handleCount();
+      expect(await w.handleCount(), 0);
+      expect(w.load, 0);
+    });
+
+    test(
+      'isCanceled turning true while the listener works stops there',
+      () async {
+        var stop = false;
+        var afterStop = 0;
+        await expectLater(
+          pool
+              .streamFile(
+                seedFile,
+                chunkSize: 128 * 1024,
+                // ignore: deprecated_member_use_from_same_package
+                isCanceled: () => stop,
+              )
+              .asyncMap((c) async {
+                if (stop) afterStop++;
+                await Future<void>.delayed(const Duration(milliseconds: 100));
+                stop = true;
+                return c;
+              })
+              .drain<void>(),
+          throwsType(Smb2ErrorType.cancelled),
+        );
+        expect(afterStop, 0);
+      },
+    );
+
+    test(
+      'a token cancelled while the listener is paused ends the stream',
+      () async {
+        final w = poolWorkers(pool).single;
+        final token = Smb2CancelToken();
+        final chunks = <int>[];
+        final done = Completer<Object?>();
+        late StreamSubscription<Uint8List> sub;
+        sub = pool
+            .streamFile(seedFile, chunkSize: 64 * 1024, cancelToken: token)
+            .listen(
+              (c) {
+                chunks.add(c.length);
+                if (chunks.length == 1) sub.pause();
+              },
+              onError: (Object e) {
+                if (!done.isCompleted) done.complete(e);
+              },
+              onDone: () {
+                if (!done.isCompleted) done.complete(null);
+              },
+            );
+        await eventually(() => chunks.isNotEmpty);
+        token.cancel();
+        // The handle closes while the listener is still paused.
+        await eventually(() => w.load == 0);
+        await w.handleCount();
+        expect(await w.handleCount(), 0);
+        sub.resume();
+        final end = await done.future;
+        expect(
+          end,
+          isA<Smb2Exception>().having(
+            (e) => e.isCancelled,
+            'isCancelled',
+            true,
+          ),
+        );
+        expect(chunks.length, 1);
+        await sub.cancel();
+      },
+    );
 
     test('isCanceled true from the start delivers nothing', () async {
       final chunks = <int>[];

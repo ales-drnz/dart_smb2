@@ -33,4 +33,7 @@ extension WorkerFaults on Worker {
 
   /// How many files the worker holds open.
   Future<int> handleCount() => call<int>(Op.injectHandleCount, const []);
+
+  /// The worker's isolate exits, as a crash would: the pool is not told.
+  void crash() => post(Op.injectExit, const []);
 }

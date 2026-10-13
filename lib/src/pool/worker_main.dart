@@ -19,6 +19,10 @@ import 'worker.dart';
 void workerMain(Init init) {
   final replies = init.replies;
   if (init.exitBeforeConnect) Isolate.exit();
+  if (init.neverReady) {
+    ReceivePort(); // Keeps the isolate alive, silent.
+    return;
+  }
   final Smb2Client client;
   try {
     final p = init.params;
@@ -238,6 +242,8 @@ final class _Server {
         return null;
       case Op.injectHandleCount:
         return handles.length;
+      case Op.injectExit:
+        Isolate.exit();
     }
   }
 }

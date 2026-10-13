@@ -134,7 +134,11 @@ extension Smb2PoolHandleInternal on Smb2PoolHandle {
         final id = await open(worker);
         if (_closed) {
           worker.post(Op.closeHandle, [id]);
-          return;
+          throw Smb2Exception(
+            'The handle was closed while it was opened again',
+            type: Smb2ErrorType.state,
+            path: path,
+          );
         }
         _id = id;
         _generation = generation;

@@ -97,7 +97,10 @@ enum Op {
   injectEmptyRead,
 
   /// Test only: replies how many files the worker holds open.
-  injectHandleCount;
+  injectHandleCount,
+
+  /// Test only: the worker's isolate exits, as a crash would.
+  injectExit;
 
   /// Whether a successful reply carries a handle id the worker opened,
   /// which must be closed when nobody waits for it any more.
@@ -109,7 +112,7 @@ enum Op {
       this == writeFile || this == writeRange || this == writeHandle;
 
   /// Whether the op is a test-only fault injection.
-  bool get isInjection => index >= injectFailures.index;
+  bool get isInjection => _injections.contains(this);
 }
 
 /// The connection settings, kept by the pool for every (re)spawn.
@@ -166,8 +169,16 @@ final class Init {
   /// Test only: the worker exits before connecting.
   final bool exitBeforeConnect;
 
+  /// Test only: the worker never answers.
+  final bool neverReady;
+
   /// The argument of a worker for [params].
-  const Init(this.replies, this.params, {this.exitBeforeConnect = false});
+  const Init(
+    this.replies,
+    this.params, {
+    this.exitBeforeConnect = false,
+    this.neverReady = false,
+  });
 }
 
 /// The worker's first message once connected.
@@ -255,3 +266,11 @@ final class NativeBytes {
   /// [length] bytes at [address].
   const NativeBytes(this.address, this.length);
 }
+
+const _injections = {
+  Op.injectFailures,
+  Op.injectHang,
+  Op.injectEmptyRead,
+  Op.injectHandleCount,
+  Op.injectExit,
+};

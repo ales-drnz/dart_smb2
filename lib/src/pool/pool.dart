@@ -50,8 +50,8 @@ final class Smb2Pool {
   final ConnectParams _params;
   final Set<Future<void>> _reconnects = {};
 
-  /// Completes on [disconnect], to abort the spawns of reconnects.
-  final Completer<void> _closing = Completer<void>();
+  /// Cancelled on [disconnect], to abort the spawns of reconnects.
+  final Smb2CancelToken _closing = Smb2CancelToken();
   int _next = 0;
   bool _closed = false;
 
@@ -118,7 +118,22 @@ final class Smb2Pool {
       await Future.wait(spawned.whereType<Worker>().map((w) => w.close()));
       throw failure;
     }
-    return Smb2Pool._([for (final w in spawned) Slot(w as Worker)], params);
+    final pool = Smb2Pool._([
+      for (final w in spawned) Slot(w as Worker),
+    ], params);
+    for (final slot in pool._slots) {
+      pool._watch(slot, slot.worker);
+    }
+    return pool;
+  }
+
+  /// Reconnects [slot] when [worker] is lost without a call failing on it:
+  /// its isolate died, or a request a caller cancelled hit a network
+  /// failure that the requests queued behind it would hit too.
+  void _watch(Slot slot, Worker worker) {
+    worker.onLost = () {
+      if (!_closed) _reconnect(slot, worker).ignore();
+    };
   }
 
   static Future<Object> _spawnResult(ConnectParams params) =>
@@ -306,6 +321,10 @@ final class Smb2Pool {
 
   /// Replaces the content of [path] with [data], creating the file if it
   /// does not exist.
+  ///
+  /// [data] is copied into a native buffer in the calling isolate, at
+  /// memory speed; for large writes from the UI isolate prefer
+  /// [streamWrite] with chunks of a few MiB.
   Future<void> writeFile(
     String path,
     Uint8List data, {
@@ -318,7 +337,8 @@ final class Smb2Pool {
   );
 
   /// Writes [data] to [path] at [offset], creating the file if it does not
-  /// exist. The rest of the file is left as it is.
+  /// exist. The rest of the file is left as it is. [data] is copied in the
+  /// calling isolate, as for [writeFile].
   Future<void> writeFileRange(
     String path,
     Uint8List data, {
@@ -398,7 +418,8 @@ final class Smb2Pool {
     cancelToken: cancelToken,
   );
 
-  /// Writes [data] to [handle] at [offset].
+  /// Writes [data] to [handle] at [offset]. [data] is copied in the calling
+  /// isolate, as for [writeFile].
   Future<void> writeToHandle(
     Smb2PoolHandle handle,
     Uint8List data, {
@@ -431,18 +452,18 @@ final class Smb2Pool {
     cancelToken: cancelToken,
   );
 
-  /// Closes [handle]. Closing a closed handle does nothing, and a close
-  /// that fails is not reported: the server drops the handle with the
+  /// Closes [handle], and returns at once: the worker closes the file after
+  /// the requests sent before. Closing a closed handle does nothing, and a
+  /// close that fails is not reported: the server drops the handle with the
   /// connection anyway.
   Future<void> closeHandle(Smb2PoolHandle handle) async {
     final target = handle.markClosed();
     if (target == null) return;
     final (worker, id) = target;
-    try {
-      await worker.call<void>(Op.closeHandle, [id]);
-    } on Smb2Exception {
-      // The worker is gone or reconnecting; its handles went with it.
-    }
+    // Sent without waiting for the reply: the worker closes the file after
+    // the requests sent before it, so a close never waits behind a read
+    // stuck on the network. A worker that is gone took its handles along.
+    worker.post(Op.closeHandle, [id]);
   }
 
   // ─── Scoped and streaming helpers ──────────────────────────────────────
@@ -498,6 +519,10 @@ final class Smb2Pool {
     bool Function()? isCanceled,
   }) {
     final controller = StreamController<Uint8List>();
+    // The token of the stream's own requests, cancelled by [cancelToken]
+    // and by the listener leaving.
+    final reads = Smb2CancelToken();
+    var unlink = _noop;
     var stopped = false;
     Completer<void>? resumed;
     Future<void>? pumping;
@@ -516,10 +541,11 @@ final class Smb2Pool {
             path: path,
           );
         }
-        final (opened, size) = await openFileWithSize(
-          path,
-          cancelToken: cancelToken,
-        );
+        if (cancelToken != null) {
+          if (cancelToken.isCancelled) reads.cancel(cancelToken.reason);
+          unlink = cancelToken.register(() => reads.cancel(cancelToken.reason));
+        }
+        final (opened, size) = await openFileWithSize(path, cancelToken: reads);
         handle = opened;
         // The read ahead may fail while the chunk before it waits for the
         // listener; mark it observed so the failure is not reported as
@@ -528,7 +554,7 @@ final class Smb2Pool {
           opened,
           offset: offset,
           length: min(chunkSize, size - offset),
-          cancelToken: cancelToken,
+          cancelToken: reads,
         )..ignore();
         var received = 0;
         if (size > 0 && !stopped) {
@@ -546,6 +572,16 @@ final class Smb2Pool {
               path: path,
             );
           }
+          // One chunk waits here while the listener holds the one before:
+          // two in memory at most.
+          while (controller.isPaused && !stopped && !reads.isCancelled) {
+            await Future.any([
+              (resumed ??= Completer<void>()).future,
+              reads.whenCancelled,
+            ]);
+          }
+          if (stopped) return;
+          reads.throwIfCancelled(path: path);
           // Like 0.1.x, which asked before each read: nothing more reaches
           // the listener once isCanceled says so.
           if (received > 0 && (isCanceled?.call() ?? false)) {
@@ -554,18 +590,15 @@ final class Smb2Pool {
           received += chunk.length;
           if (received < size) next = fetch(received);
           onProgress?.call(received, size);
-          while (controller.isPaused && !stopped) {
-            await (resumed ??= Completer<void>()).future;
-          }
-          if (stopped) return;
           controller.add(chunk);
         }
       } catch (e, st) {
         if (!stopped) controller.addError(e, st);
       } finally {
+        unlink();
         // A read still in flight when the listener left: drop its result.
         next?.ignore();
-        if (handle != null) await closeHandle(handle);
+        if (handle != null) unawaited(closeHandle(handle));
         if (!stopped) unawaited(controller.close());
       }
     }
@@ -579,6 +612,8 @@ final class Smb2Pool {
     controller.onResume = wake;
     controller.onCancel = () {
       stopped = true;
+      // Ends the requests in flight at once: their results are not wanted.
+      reads.cancel();
       wake();
       return pumping;
     };
@@ -695,7 +730,7 @@ final class Smb2Pool {
   Future<void> disconnect() async {
     if (_closed) return;
     _closed = true;
-    _closing.complete();
+    _closing.cancel();
     for (final slot in _slots) {
       slot.retry?.cancel();
       slot.retry = null;
@@ -803,9 +838,10 @@ final class Smb2Pool {
       } on Smb2Exception catch (reconnect) {
         if (reconnect.isCancelled || _closed) rethrow;
         if (!idempotent) throw e;
-        // The slot cannot reconnect now: repeat on another live worker.
+        // The slot cannot reconnect now: repeat on another live worker, or
+        // report why the reconnect failed.
         final other = _pickNow();
-        if (other == null || !other.worker.isUsable) throw e;
+        if (other == null || !other.worker.isUsable) rethrow;
         slot = other;
         fresh = other.worker;
       }
@@ -839,6 +875,7 @@ final class Smb2Pool {
     }
     if (handle.isStale) await _reopen(handle, cancelToken);
     final worker = handle.slot.worker;
+    _ensureCurrent(handle);
     try {
       return await worker.call<T>(
         op,
@@ -851,6 +888,7 @@ final class Smb2Pool {
       await _orCancel(_reconnect(handle.slot, worker), cancelToken, path);
       cancelToken?.throwIfCancelled(path: path);
       await _reopen(handle, cancelToken);
+      _ensureCurrent(handle);
       return handle.slot.worker.call<T>(
         op,
         args(handle.id),
@@ -879,6 +917,19 @@ final class Smb2Pool {
     );
   }
 
+  /// Fails when [handle] was closed, or could not be opened again, while
+  /// the call waited for its reopen: its id would name another file.
+  void _ensureCurrent(Smb2PoolHandle handle) {
+    _ensureHandleOpen(handle);
+    if (handle.isStale) {
+      throw Smb2Exception(
+        'The handle could not be opened again after a reconnect',
+        type: Smb2ErrorType.state,
+        path: handle.path,
+      );
+    }
+  }
+
   void _ensureHandleOpen(Smb2PoolHandle handle) {
     if (handle.isClosed) {
       throw Smb2Exception(
@@ -900,7 +951,11 @@ final class Smb2Pool {
     final future = slot.reconnecting = _replace(slot, failed);
     final done = future.then<void>(
       (_) => slot.failures = 0,
-      onError: (Object _) => _scheduleRetry(slot),
+      // A server that refuses the credentials or the share is not asked
+      // again and again: the next call that needs the slot tries.
+      onError: (Object e) {
+        if (e is Smb2Exception && e.isNetworkFailure) _scheduleRetry(slot);
+      },
     );
     _reconnects.add(done);
     done.whenComplete(() {
@@ -913,7 +968,8 @@ final class Smb2Pool {
   Future<Worker> _replace(Slot slot, Worker failed) async {
     await failed.close();
     _ensureOpen(null);
-    final worker = await Worker.spawn(_params, abort: _closing.future);
+    final worker = await Worker.spawn(_params, abort: _closing);
+    _watch(slot, worker);
     if (_closed) {
       await worker.close();
       _ensureOpen(null);
@@ -966,6 +1022,8 @@ Future<T> _orCancel<T>(Future<T> future, Smb2CancelToken? token, String? path) {
 }
 
 T _valueOnly<T>(Slot _, T value) => value;
+
+void _noop() {}
 
 /// A copy of [data] in a `malloc` buffer for a write request. The copy is
 /// made in the calling isolate, at memory speed (about 9 ms for 64 MiB);
