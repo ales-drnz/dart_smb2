@@ -150,9 +150,9 @@ def architecture(t):
     d.node(640, 95, 300, 60, 'Smb2Pool', 'async, least busy worker first', role='lib')
     d.arrow('M330,95 L488,95'); d.text(409, 82, 'calls', size=11)
     d.band(20, 185, 860, 240, 'Worker isolates')
-    for i, x in enumerate((180, 450, 720)):
-        d.node(x, 265, 220, 60, f'worker {i + 1}', 'Smb2Client, sync', role='lib')
-        d.node(x, 365, 220, 56, 'libsmb2', 'code asset from the hook', role='neutral', mono=False)
+    for x, name in ((180, 'worker 1'), (450, 'worker 2'), (720, 'worker N')):
+        d.node(x, 265, 220, 60, name, 'Smb2Client, sync', role='lib')
+        d.node(x, 365, 220, 56, 'libsmb2 context', 'one per worker', role='neutral', mono=False)
         d.arrow(f'M{x},295 L{x},335', kind='sec')
     d.arrow('M640,125 L640,160 L180,160 L180,233')
     d.arrow('M450,160 L450,233'); d.arrow('M640,160 L720,160 L720,233')
@@ -165,9 +165,9 @@ def architecture(t):
 
 
 def pool_lifecycle(t):
-    d = D('pool_lifecycle', 1150, 150, t, 'Pool lifecycle')
+    d = D('pool_lifecycle', 920, 150, t, 'Pool lifecycle')
     steps = [('Smb2Pool.connect()', 'workers in parallel', 'lib'), ('calls', 'list, read, write, stat', 'app'),
-             ('withFile / streamFile', 'handles closed for you', 'app'), ('Smb2CancelToken', "a page's calls", 'app'),
+             ('withFile / streamFile', 'handles closed for you', 'app'),
              ('disconnect()', 'logoff, isolates end', 'lib')]
     for i, (a, b, role) in enumerate(steps):
         x = 115 + i * 230
@@ -182,10 +182,11 @@ def reconnect(t):
     cols = [(130, 'Your code', 'app'), (380, 'Smb2Pool', 'lib'), (620, 'worker', 'lib'), (800, 'new worker', 'lib')]
     for x, n, role in cols:
         d.node(x, 45, 150, 50, n, role=role, mono=n != 'Your code')
-        d.lifeline(x, 72, 410)
+        # The old worker is closed once its connection is lost.
+        d.lifeline(x, 72, 205 if n == 'worker' else 410)
     steps = [(130, 380, 110, 'stat(path)', 'main'), (380, 620, 150, 'request', 'main'),
              (620, 380, 190, 'connection lost', 'fail'), (380, 800, 230, 'spawn, connect', 'main'),
-             (800, 380, 270, 'ready', 'sec'), (380, 800, 310, 'stat again', 'main'),
+             (800, 380, 270, 'ready', 'sec'), (380, 800, 310, 'stat(path) again', 'main'),
              (800, 380, 350, 'result', 'sec'), (380, 130, 390, 'Smb2Stat', 'sec')]
     for a, b, y, label, kind in steps:
         d.arrow(f'M{a},{y} L{b + (8 if b < a else -8)},{y}', kind=kind)
@@ -198,10 +199,10 @@ def reconnect(t):
 def streaming(t):
     d = D('streaming', 900, 330, t, 'streamFile and downloadToFile: one chunk ahead, a part file renamed at the end')
     d.band(20, 20, 860, 120, 'Worker')
-    for i, (x, lab) in enumerate(((170, 'chunk 1'), (390, 'chunk 2'), (610, 'chunk 3'), (800, '...'))):
-        d.node(x, 85, 170 if i < 3 else 90, 54, lab, 'read' if i < 3 else None, role='lib' if i < 3 else 'ghost', mono=False, size=14)
+    for x, lab in ((170, 'chunk 1'), (390, 'chunk 2'), (610, 'last chunk')):
+        d.node(x, 85, 170, 54, lab, 'read', role='lib', mono=False, size=14)
     d.band(20, 175, 860, 135, 'Your isolate')
-    for i, (x, lab) in enumerate(((280, 'chunk 1'), (500, 'chunk 2'), (720, 'chunk 3'))):
+    for x, lab in ((280, 'chunk 1'), (500, 'chunk 2'), (720, 'last chunk')):
         d.node(x, 240, 170, 54, lab, 'written to .part', role='app', mono=False, size=14)
     for a, b in ((170, 280), (390, 500), (610, 720)):
         d.arrow(f'M{a},112 L{a},150 L{b},150 L{b},211', kind='sec')
@@ -214,11 +215,13 @@ def hook(t):
     d = D('hook', 900, 300, t, 'The build hook bundles libsmb2 for the target')
     d.node(150, 80, 230, 60, 'libsmb2-r9 release', 'one binary per target', role='neutral', mono=False)
     d.node(150, 220, 230, 60, 'hooks.user_defines', 'a local build instead', role='app')
-    d.node(450, 150, 230, 64, 'hook/build.dart', 'SHA-256 checked', role='lib')
-    d.node(750, 150, 230, 64, 'libdart_smb2', 'code asset in the app', role='lib')
-    d.arrow('M265,80 L320,80 L320,135 L333,135'); d.arrow('M265,220 L320,220 L320,165 L333,165', kind='sec')
-    d.arrow('M565,150 L633,150'); d.text(599, 137, 'bundle', size=11)
-    d.text(450, 210, 'Android, iOS, Linux, macOS, Windows', size=11)
+    d.node(500, 150, 230, 64, 'hook/build.dart', "picks the target's binary", role='lib')
+    d.node(790, 150, 200, 64, 'libdart_smb2', 'code asset in the app', role='lib')
+    d.arrow('M265,80 L335,80 L335,135 L383,135'); d.arrow('M265,220 L335,220 L335,165 L383,165', kind='sec')
+    d.text(346, 105, 'SHA-256 checked', anchor='start', size=11)
+    d.text(346, 203, 'no checksum', anchor='start', size=11)
+    d.arrow('M615,150 L688,150'); d.text(651, 137, 'bundle', size=11)
+    d.text(500, 245, 'Android, iOS, Linux, macOS, Windows', size=11)
     return d
 
 

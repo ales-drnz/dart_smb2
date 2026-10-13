@@ -11,6 +11,8 @@ SwiftPM manifests and the CMake files are gone: a Dart build hook
 downloads the binary for each target, checks its SHA-256 and bundles it.
 
 - The package needs Dart 3.10, and Flutter 3.38 in a Flutter app.
+- An Android app needs `minSdk` 24, which the binaries are built for: the
+  hook fails the build below it.
 - The first build of each target needs network access, and so does the
   first build after `flutter clean`, which removes the download.
 - The bundled files are `libdart_smb2.so` (Android, Linux),
@@ -45,19 +47,48 @@ platform (Windows errors were misclassified before).
 | `e.isConnectionError` | `e.isNetworkFailure`, or `e.isTransient` to include a file in use |
 | `Smb2ErrorType.fileNotFound` | `Smb2ErrorType.notFound`, or `e.isNotFound` |
 | `e.type == Smb2ErrorType.auth` | `e.isAuthError` |
+| `Smb2ErrorType.classify(message, errno)` | `Smb2ErrorType.fromFailure(message: message, errno: errno)` |
 
-The old names still work and are deprecated. `Smb2ErrorType` has new
+The old names still work and are deprecated, except the positional
+constructor of `Smb2Exception`. `Smb2ErrorType.fromErrno(errno)` keeps
+working and now reads the errno as the running platform numbers it (pass
+`os:` for another one).
+
+`Smb2ErrorType.fileNotFound` is an alias of `notFound`, not a value of its
+own: `type.name` is `notFound`, and `Smb2ErrorType.values` does not list
+it. The values, their order and `toString()` changed, so do not persist an
+error type by index or by name across versions. `Smb2ErrorType` has new
 values, so an exhaustive `switch` needs cases (or a default) for
 `notEmpty`, `isADirectory`, `inUse`, `notSupported`, `state` and
-`cancelled`. Some failures change type:
+`cancelled`.
+
+`errno` (and `errorCode`) is the errno of the failed call, or, for an open
+or a listing, which return none, the errno of the server's status. It is
+null for a transport failure, where 0.1.x read whatever status an earlier
+call had left. Check `isNetworkFailure` or `isNotFound` rather than errno
+values.
+
+Some failures change type:
 
 - a closed pool, a closed handle and a client that is not connected
   report `state`, not `unknown`;
 - `Smb2Pool.connect()` with wrong credentials reports `auth`, not
   `unknown` (the worker's own error, not "Worker failed to start");
-- `rmdir` of a directory with entries reports `notEmpty`; it used to
-  return without removing it;
-- a stopped stream or download reports `cancelled`.
+- `Smb2Pool.connect()` and `Smb2Client.connect()` with a user the server
+  does not know report `auth` too, also from a server that maps unknown
+  users to guest and refuses them at the tree connect;
+- a host name that does not resolve reports `connection`, not `io`;
+- `rmdir` of a directory with entries reports `notEmpty`, and `rmdir` of a
+  file `notADirectory`; they used to return without removing the
+  directory, and to delete the file;
+- `deleteFile` of a directory reports `isADirectory`; it used to delete an
+  empty one and to return without doing anything on one with entries;
+- a server out of resources (too many open files, no memory) reports
+  `inUse`, which `isTransient` covers, and a read-only share
+  `accessDenied`;
+- a stopped stream or download reports `cancelled`;
+- `Smb2Pool.connect(workers: 0)` throws `invalidParam`; it used to make a
+  pool without workers.
 
 ## Downloads and cancellation
 
@@ -71,6 +102,10 @@ removed on failure. Drop your own `.part` and rename logic.
 | `isCanceled: () => stopped` | `cancelToken: token`, then `token.cancel()` |
 | catching `Smb2Exception('Read canceled')` | `on Smb2Exception catch (e) { if (e.isCancelled) ... }` |
 
+`isCanceled` still works on `streamFile` and `downloadToFile`, and is
+deprecated: it is asked before each chunk, as before, but it cannot stop a
+read in progress, which a token does.
+
 ```dart
 final token = Smb2CancelToken();
 final download = pool.downloadToFile(remotePath, localPath, cancelToken: token);
@@ -78,8 +113,9 @@ final download = pool.downloadToFile(remotePath, localPath, cancelToken: token);
 token.cancel();
 ```
 
-Every pool call takes a `cancelToken`, so a page can cancel its listings
-and reads the same way it cancels dart_plex and dart_jellyfin calls.
+Every call on a connected pool takes a `cancelToken`, except
+`closeHandle` and `disconnect`, so a page can cancel its listings and
+reads the same way it cancels dart_plex and dart_jellyfin calls.
 
 ## Calls that are not repeated
 
@@ -92,8 +128,8 @@ again if that suits your app.
 ## Timeouts
 
 `timeout: Duration` replaces `timeoutSeconds: int` on `connect`,
-`listSharesOn` and `Smb2Client.connect`. The old argument still works and
-is deprecated.
+`listSharesOn`, `Smb2Client.connect` and `Smb2Client.listShares`. The old
+argument still works and is deprecated.
 
 ```dart
 final pool = await Smb2Pool.connect(
@@ -131,4 +167,7 @@ throws a `state` error instead of reaching freed memory.
 - The public classes are `final`: wrap them instead of extending or
   implementing them.
 - `Smb2PoolHandle` no longer exposes `worker`, `id` or `markClosed()`; it
-  has `path`, `writable` and `isClosed`.
+  has `path`, `writable` and `isClosed`. `closed` (now read-only) and
+  `refreshFinalizer()` (which does nothing now) still work and are
+  deprecated.
+- `Smb2File` is made by `Smb2Pool.withFile`; its constructor is internal.
