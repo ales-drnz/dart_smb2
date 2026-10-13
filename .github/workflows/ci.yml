@@ -28,14 +28,15 @@ jobs:
   analyze:
     name: Analyze (Dart ${{ matrix.sdk }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         # The declared floor and the current stable.
         sdk: ['3.10.0', stable]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
         with:
           sdk: ${{ matrix.sdk }}
       - run: dart pub get
@@ -50,18 +51,53 @@ jobs:
         if: matrix.sdk == 'stable'
         run: dart doc --dry-run
 
+  # The generated bindings match libsmb2's patched headers at the commit
+  # the pinned release was built from: types and struct layouts, not only
+  # the function names tool/bindings_drift.dart checks.
+  bindings:
+    name: Bindings
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.22'
+      - name: Patched headers of the pinned release
+        run: |
+          commit="$(jq -r .source.commit tool/libsmb2_manifest.json)"
+          git clone --quiet https://github.com/ales-drnz/libsmb2-scripts ../libsmb2-scripts
+          git -C ../libsmb2-scripts checkout --quiet "$commit"
+          (cd ../libsmb2-scripts && ./build sources)
+      - run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - run: dart pub get
+      - name: Regenerate and compare
+        run: |
+          dart run tool/ffigen.dart
+          git diff --exit-code lib/src/ffi/libsmb2.g.dart
+      - run: dart run tool/bindings_drift.dart ../libsmb2-scripts
+
   test:
-    name: Test (${{ matrix.os }})
+    name: Test (${{ matrix.os }}, Dart ${{ matrix.sdk }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         # The hook bundles libsmb2 for dart test: the Linux .so, the macOS
         # slice thinned from the xcframework, the Windows DLL.
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-26, windows-2025]
+        sdk: [stable]
+        include:
+          # The declared floor, on one OS.
+          - os: ubuntu-24.04
+            sdk: '3.10.0'
     steps:
-      - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: ${{ matrix.sdk }}
       - uses: ./.github/actions/libsmb2-from-run
         with:
           run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
@@ -94,9 +130,10 @@ jobs:
   integration:
     name: Integration (Samba)
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
       - uses: ./.github/actions/libsmb2-from-run
         with:
           run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
@@ -105,7 +142,7 @@ jobs:
       - name: Start Samba and seed the share
         run: dart run test/integration/bootstrap.dart
       - name: dart test -P integration
-        run: dart test -P integration --tags integration
+        run: dart test -P integration test/integration
       - name: Samba logs
         if: failure()
         run: docker logs dart-smb2-test
@@ -115,6 +152,7 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -132,31 +170,31 @@ jobs:
               flutter build linux --debug &&
               test -f build/linux/x64/debug/bundle/lib/libdart_smb2.so
           - name: Windows
-            os: windows-latest
+            os: windows-2025
             platform: windows
             command: >-
               flutter build windows --debug &&
               find build/windows -name dart_smb2.dll | grep -q .
           - name: macOS
-            os: macos-latest
+            os: macos-26
             platform: macos
             command: >-
               flutter build macos --debug &&
               test -f build/macos/Build/Products/Debug/smb2_ci_app.app/Contents/Frameworks/libdart_smb2.framework/libdart_smb2
           - name: iOS
-            os: macos-latest
+            os: macos-26
             platform: ios
             command: >-
               flutter build ios --simulator --debug &&
               test -f build/ios/iphonesimulator/Runner.app/Frameworks/libdart_smb2.framework/libdart_smb2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         if: matrix.name == 'Android'
         with:
           distribution: temurin
           java-version: '17'
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           cache: true
