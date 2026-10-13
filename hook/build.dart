@@ -80,6 +80,7 @@ void main(List<String> args) async {
       output.dependencies.add(local);
       await File.fromUri(local).copy(out.path);
     } else {
+      if (local == null) _checkAndroidApi(code);
       final asset = local == null
           ? await _fetch(target.asset, input.outputDirectoryShared)
           : await _localAsset(local, target.asset);
@@ -145,12 +146,6 @@ class _Target {
         }}.so',
         'libdart_smb2.so',
       ),
-      OS.android when code.android.targetNdkApi < _androidMinApi =>
-        throw UnsupportedError(
-          'dart_smb2: libsmb2 is built for Android API $_androidMinApi, the '
-          'app targets ${code.android.targetNdkApi}: raise minSdk to '
-          '$_androidMinApi',
-        ),
       OS.android => _Target(
         'libsmb2_android-${switch (arch) {
           Architecture.arm64 => 'arm64-v8a',
@@ -182,6 +177,20 @@ class _Target {
       ),
       _ => unsupported(),
     };
+  }
+}
+
+/// Fails the build of an Android app below the API level the release's
+/// libraries are built for; a local build may target a lower one.
+void _checkAndroidApi(CodeConfig code) {
+  if (code.targetOS != OS.android) return;
+  final api = code.android.targetNdkApi;
+  if (api < _androidMinApi) {
+    throw UnsupportedError(
+      'dart_smb2: libsmb2 is built for Android API $_androidMinApi, the app '
+      'targets $api: raise minSdk to $_androidMinApi, or build libsmb2 for '
+      'API $api and point hooks.user_defines.dart_smb2.libsmb2 at it',
+    );
   }
 }
 
@@ -276,26 +285,34 @@ Future<bool> _matches(File file, String sha256Hex) async {
   return digest.toString() == sha256Hex;
 }
 
-/// Downloads [url] to [target], in up to three attempts. A connection gets
-/// 30 seconds to open and the transfer 60 seconds without data before an
-/// attempt is given up, so a network that answers nothing fails the build
-/// instead of hanging it.
+/// Downloads [url] to [target], in up to three attempts, 2 and 4 seconds
+/// apart. Each attempt gets 60 seconds to connect and get an answer (a
+/// proxy tunnel included) and 60 seconds without data in the transfer, so a
+/// network that answers nothing fails the build instead of hanging it. A
+/// client error other than 408 and 429 is not retried.
 Future<void> _download(String url, File target, String asset) async {
+  const step = Duration(seconds: 60);
   Object? lastError;
   for (var attempt = 1; attempt <= 3; attempt++) {
+    if (attempt > 1) {
+      await Future<void>.delayed(Duration(seconds: 1 << (attempt - 1)));
+    }
     final client = HttpClient()
       ..findProxy = HttpClient.findProxyFromEnvironment
       ..connectionTimeout = const Duration(seconds: 30);
     try {
-      final response = await (await client.getUrl(
-        Uri.parse(url),
-      )).close().timeout(const Duration(seconds: 60));
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('HTTP ${response.statusCode} for $url');
+      final response = await client
+          .getUrl(Uri.parse(url))
+          .then((request) => request.close())
+          .timeout(step);
+      final status = response.statusCode;
+      if (status != HttpStatus.ok) {
+        lastError = HttpException('HTTP $status for $url');
+        final retry = status >= 500 || status == 408 || status == 429;
+        if (!retry) break;
+        continue;
       }
-      await response
-          .timeout(const Duration(seconds: 60))
-          .pipe(target.openWrite());
+      await response.timeout(step).pipe(target.openWrite());
       return;
     } on Exception catch (e) {
       lastError = e;
