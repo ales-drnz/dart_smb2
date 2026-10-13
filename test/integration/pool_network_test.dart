@@ -31,11 +31,12 @@ int nativeBuffer(int n) => malloc<Uint8>(n).address;
 Future<void> eventually(
   bool Function() condition, {
   Duration limit = const Duration(seconds: 15),
+  Duration poll = const Duration(milliseconds: 50),
 }) async {
   final watch = Stopwatch()..start();
   while (!condition()) {
     if (watch.elapsed > limit) fail('not within $limit');
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await Future<void>.delayed(poll);
   }
 }
 
@@ -227,7 +228,12 @@ void main() {
         final old = poolWorkers(pool).single;
         await old.failNext(1);
         final failing = pool.stat(seedFile);
-        await eventually(() => old.isDead);
+        // Right as the old worker dies, while the new one connects.
+        await eventually(
+          () => old.isDead,
+          poll: const Duration(milliseconds: 1),
+        );
+        expect(identical(poolWorkers(pool).single, old), isTrue);
         final waiting = pool.stat(seedFile);
         final dir = scratch.path('made_during_reconnect');
         final making = pool.mkdir(dir);
@@ -449,18 +455,22 @@ void main() {
         proxy
           ..mode = ProxyMode.refuse
           ..drop();
-        await expectLater(
-          pool.stat(seedFile),
-          throwsA(
-            isA<Smb2Exception>()
-                .having((e) => e.isNetworkFailure, 'isNetworkFailure', isTrue)
-                .having(
-                  (e) => e.message,
-                  'message',
-                  isNot(contains('worker isolate is gone')),
-                ),
-          ),
-        );
+        // The first call fails over the dropped connection; the second one
+        // finds the slot's worker dead and tries to reconnect it itself.
+        for (var i = 0; i < 2; i++) {
+          await expectLater(
+            pool.stat(seedFile),
+            throwsA(
+              isA<Smb2Exception>()
+                  .having((e) => e.isNetworkFailure, 'isNetworkFailure', isTrue)
+                  .having(
+                    (e) => e.message,
+                    'message',
+                    isNot(contains('worker isolate is gone')),
+                  ),
+            ),
+          );
+        }
       } finally {
         proxy.mode = ProxyMode.forward;
         await pool.disconnect();
@@ -497,6 +507,131 @@ void main() {
       } finally {
         Worker.debugNeverReady = false;
         Worker.debugSpawnMargin = const Duration(seconds: 15);
+      }
+    });
+  });
+
+  group('closing before a delete or rename', () {
+    late Smb2Pool pool;
+    // The rename or delete goes to another worker than the close: only the
+    // close's reply orders them.
+    setUp(() async => pool = await connectPool(workers: 4));
+    tearDown(() => pool.disconnect());
+
+    test('a stream left early does not hold up a delete or rename', () async {
+      final path = scratch.path('left_early.bin');
+      await pool.writeFile(path, Uint8List(16 << 20));
+      for (var i = 0; i < 10; i++) {
+        // Leaving closes without waiting: the close may queue behind the
+        // read ahead, while the rename goes to another worker.
+        await for (final _ in pool.streamFile(path)) {
+          break;
+        }
+        await pool.rename(path, '$path.moved');
+        await for (final _ in pool.streamFile('$path.moved')) {
+          break;
+        }
+        await pool.rename('$path.moved', path);
+      }
+      await for (final _ in pool.streamFile(path)) {
+        break;
+      }
+      await pool.deleteFile(path);
+      expect(await pool.exists(path), isFalse);
+    });
+
+    test('a file closed by closeHandle, a stream or withFile can go', () async {
+      for (var i = 0; i < 20; i++) {
+        final path = scratch.path('close_then_delete_$i.bin');
+        await pool.writeFile(path, Uint8List(256 * 1024));
+        final h = await pool.openFile(path);
+        await pool.closeHandle(h);
+        await pool.rename(path, '$path.a');
+        await pool.streamFile('$path.a', chunkSize: 64 * 1024).drain<void>();
+        await pool.rename('$path.a', '$path.b');
+        await pool.withFile('$path.b', (f) => f.read(length: 16));
+        await pool.streamWrite('$path.c', Stream.value(Uint8List(16)));
+        await pool.rename('$path.c', '$path.d');
+        await pool.deleteFile('$path.b');
+        await pool.deleteFile('$path.d');
+      }
+    });
+  });
+
+  group('retries in the background', () {
+    tearDown(() {
+      Worker.debugConnectFailure = null;
+      Smb2Pool.debugRefusedRetry = const Duration(minutes: 5);
+    });
+
+    test('a refused reconnect is retried slowly, then recovers', () async {
+      final pool = await connectPool();
+      try {
+        Smb2Pool.debugRefusedRetry = const Duration(seconds: 3);
+        Worker.debugConnectFailure = const Smb2Exception(
+          'Refused for the test',
+          type: Smb2ErrorType.auth,
+        );
+        final spawns = Worker.debugSpawns;
+        poolWorkers(pool).first.crash();
+        await eventually(() => Worker.debugSpawns == spawns + 1);
+        // No fast retries for a refusal: still one attempt 1.5 s later.
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        expect(Worker.debugSpawns, spawns + 1);
+        // The other worker serves the calls meanwhile.
+        expect((await pool.stat(seedFile)).size, seedSize);
+        Worker.debugConnectFailure = null;
+        await eventually(() => poolWorkers(pool).every((w) => w.isUsable));
+      } finally {
+        await pool.disconnect();
+      }
+    });
+
+    test('a reconnect that fails on the network is retried soon', () async {
+      final pool = await connectPool();
+      try {
+        Worker.debugConnectFailure = const Smb2Exception(
+          'Network down for the test',
+          type: Smb2ErrorType.connection,
+        );
+        final spawns = Worker.debugSpawns;
+        poolWorkers(pool).first.crash();
+        // The first attempt, then a retry 1 s later.
+        await eventually(() => Worker.debugSpawns >= spawns + 2);
+        Worker.debugConnectFailure = null;
+        await eventually(() => poolWorkers(pool).every((w) => w.isUsable));
+      } finally {
+        await pool.disconnect();
+      }
+    });
+  });
+
+  group('abandoned requests', () {
+    test('free the write buffer and the read buffer they get back', () async {
+      final pool = await connectPool(workers: 1);
+      try {
+        final w = poolWorkers(pool).single;
+        final writes = Worker.debugBuffersFreed;
+        final reads = Worker.debugReadBuffersFreed;
+        final t1 = Smb2CancelToken();
+        final write = pool.writeFile(
+          scratch.path('abandoned.bin'),
+          Uint8List(1024),
+          cancelToken: t1,
+        );
+        t1.cancel();
+        await expectLater(write, throwsType(Smb2ErrorType.cancelled));
+        final t2 = Smb2CancelToken();
+        final read = pool.readFile(seedFile, cancelToken: t2);
+        t2.cancel();
+        await expectLater(read, throwsType(Smb2ErrorType.cancelled));
+        // Answered after both: their replies have arrived by then.
+        await w.handleCount();
+        expect(Worker.debugBuffersFreed - writes, 1);
+        expect(Worker.debugReadBuffersFreed - reads, 1);
+        expect(w.debugHeldBuffers, 0);
+      } finally {
+        await pool.disconnect();
       }
     });
   });
@@ -565,6 +700,19 @@ void main() {
             .map((_) => first())
             .drain<void>(),
       );
+    });
+
+    test('cancelling a stream subscription', () async {
+      final first = Completer<void>();
+      final sub = pool.streamFile(seedFile, chunkSize: 64 * 1024).listen((_) {
+        if (!first.isCompleted) first.complete();
+      });
+      await first.future;
+      proxy.freeze();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final watch = Stopwatch()..start();
+      await sub.cancel();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
     });
 
     test('withFile', () async {

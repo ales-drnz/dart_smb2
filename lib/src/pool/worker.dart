@@ -75,6 +75,20 @@ final class Worker {
   @visibleForTesting
   static int debugBuffersFreed = 0;
 
+  /// Read buffers of abandoned requests freed so far, in this isolate. For
+  /// tests.
+  @visibleForTesting
+  static int debugReadBuffersFreed = 0;
+
+  /// Spawns started so far, in this isolate. For tests.
+  @visibleForTesting
+  static int debugSpawns = 0;
+
+  /// Makes the next spawned workers fail to connect with this error, as the
+  /// server would. For tests.
+  @visibleForTesting
+  static Smb2Exception? debugConnectFailure;
+
   /// Called when the worker is lost without the caller of a pending
   /// request learning it: the isolate died while not closing, or a request
   /// whose caller cancelled failed with a network failure. The pool
@@ -103,7 +117,10 @@ final class Worker {
     Smb2CancelToken? abort,
   }) async {
     debugAlive++;
+    debugSpawns++;
     try {
+      final failure = debugConnectFailure;
+      if (failure != null) throw failure;
       return await _spawn(params, abort);
     } catch (_) {
       debugAlive--;
@@ -375,6 +392,7 @@ final class Worker {
     switch (value) {
       case NativeBytes(:final address) when address != 0:
         malloc.free(Pointer<Uint8>.fromAddress(address));
+        debugReadBuffersFreed++;
       case final int id when op != null && op.opensHandle:
         post(Op.closeHandle, [id]);
       case (final int id, int _) when op == Op.openWithSize:

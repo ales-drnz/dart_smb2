@@ -50,6 +50,10 @@ final class Smb2Pool {
   final ConnectParams _params;
   final Set<Future<void>> _reconnects = {};
 
+  /// Closes still on their way to the server, by path: a call that would
+  /// conflict with the open file waits for them (see [_mutates]).
+  final Map<String, Future<void>> _pendingCloses = {};
+
   /// Cancelled on [disconnect], to abort the spawns of reconnects.
   final Smb2CancelToken _closing = Smb2CancelToken();
   int _next = 0;
@@ -71,7 +75,8 @@ final class Smb2Pool {
   /// dropped — and their failure reaches the caller.
   ///
   /// When a reconnect fails, the slot's calls go to the other workers, and
-  /// the slot tries again in the background, at growing intervals.
+  /// the slot tries again in the background: from 1 to 32 seconds apart
+  /// after a network failure, every 5 minutes after a refusal.
   ///
   /// Throws the first worker's [Smb2Exception] when one cannot connect
   /// (the others are closed): [Smb2ErrorType.auth] for bad credentials,
@@ -254,7 +259,9 @@ final class Smb2Pool {
     cancelToken: cancelToken,
   );
 
-  /// Deletes the file [path]. Not repeated after a network failure.
+  /// Deletes the file [path]; a directory, or a link to one, fails with
+  /// [Smb2ErrorType.isADirectory] (remove it with [rmdir]). Not repeated
+  /// after a network failure.
   Future<void> deleteFile(String path, {Smb2CancelToken? cancelToken}) => _run(
     Op.deleteFile,
     [path],
@@ -452,19 +459,38 @@ final class Smb2Pool {
     cancelToken: cancelToken,
   );
 
-  /// Closes [handle], and returns at once: the worker closes the file after
-  /// the requests sent before. Closing a closed handle does nothing, and a
-  /// close that fails is not reported: the server drops the handle with the
-  /// connection anyway.
+  /// Closes [handle], and completes once the server has closed the file, so
+  /// a delete or rename of it can follow. Closing a closed handle does
+  /// nothing, and a close that fails is not reported: the server drops the
+  /// handle with the connection anyway.
   Future<void> closeHandle(Smb2PoolHandle handle) async {
     final target = handle.markClosed();
     if (target == null) return;
     final (worker, id) = target;
-    // Sent without waiting for the reply: the worker closes the file after
-    // the requests sent before it, so a close never waits behind a read
-    // stuck on the network. A worker that is gone took its handles along.
-    worker.post(Op.closeHandle, [id]);
+    final done = worker
+        .call<void>(Op.closeHandle, [id])
+        // The worker is gone or reconnecting; its handles went with it.
+        .catchError((Object _) {}, test: (e) => e is Smb2Exception);
+    final key = _pathKey(handle.path);
+    final before = _pendingCloses[key];
+    final pending = before == null
+        ? done
+        : Future.wait([before, done]).then((_) {});
+    _pendingCloses[key] = pending;
+    unawaited(
+      pending.whenComplete(() {
+        if (identical(_pendingCloses[key], pending)) {
+          _pendingCloses.remove(key)?.ignore();
+        }
+      }),
+    );
+    await done;
   }
+
+  /// Closes [handle] without waiting: for a call that failed or was
+  /// cancelled, whose close may queue behind a read stuck on the network. A
+  /// later delete, rename or write of the same path waits for the close.
+  void _closeLater(Smb2PoolHandle handle) => unawaited(closeHandle(handle));
 
   // ─── Scoped and streaming helpers ──────────────────────────────────────
 
@@ -493,11 +519,15 @@ final class Smb2Pool {
     } else {
       (handle, size) = await openFileWithSize(path, cancelToken: cancelToken);
     }
+    final T result;
     try {
-      return await body(Smb2File(this, handle, size, cancelToken));
-    } finally {
-      await closeHandle(handle);
+      result = await body(Smb2File(this, handle, size, cancelToken));
+    } catch (_) {
+      _closeLater(handle);
+      rethrow;
     }
+    await closeHandle(handle);
+    return result;
   }
 
   /// Streams the file at [path] in chunks of [chunkSize] bytes, keeping
@@ -592,13 +622,18 @@ final class Smb2Pool {
           onProgress?.call(received, size);
           controller.add(chunk);
         }
+        // Read to the end: the stream is done once the file is closed, so
+        // the listener can delete or rename it next.
+        handle = null;
+        await closeHandle(opened);
       } catch (e, st) {
         if (!stopped) controller.addError(e, st);
       } finally {
         unlink();
         // A read still in flight when the listener left: drop its result.
         next?.ignore();
-        if (handle != null) unawaited(closeHandle(handle));
+        // Left early: the close may queue behind a read stuck on the network.
+        if (handle != null) _closeLater(handle);
         if (!stopped) unawaited(controller.close());
       }
     }
@@ -715,9 +750,11 @@ final class Smb2Pool {
         );
         offset += chunk.length;
       }
-    } finally {
-      await closeHandle(handle);
+    } catch (_) {
+      _closeLater(handle);
+      rethrow;
     }
+    await closeHandle(handle);
   }
 
   /// Closes every worker: each closes its handles and logs off.
@@ -739,6 +776,11 @@ final class Smb2Pool {
     await Future.wait(_reconnects.toList());
     await Future.wait(_slots.map((s) => s.worker.close()));
   }
+
+  /// How long a slot whose reconnect the server refused waits before it
+  /// tries again. Shortened by tests.
+  @visibleForTesting
+  static Duration debugRefusedRetry = const Duration(minutes: 5);
 
   /// The default chunk of [streamFile] and [downloadToFile]: 4 MiB.
   static const int defaultChunkSize = 4 * 1024 * 1024;
@@ -821,6 +863,15 @@ final class Smb2Pool {
   }) async {
     _ensureOpen(path);
     cancelToken?.throwIfCancelled(path: path);
+    if (_mutates.contains(op) && _pendingCloses.isNotEmpty) {
+      final closes = [
+        for (final p in [path, if (op == Op.rename) (args as List)[1]])
+          if (p is String) ?_pendingCloses[_pathKey(p)],
+      ];
+      if (closes.isNotEmpty) {
+        await _orCancel(Future.wait(closes), cancelToken, path);
+      }
+    }
     List<Object?> build() =>
         args is List<Object?> ? args : (args as List<Object?> Function())();
     Slot slot = _pickNow() ?? await _orCancel(_pickLater(), cancelToken, path);
@@ -951,11 +1002,10 @@ final class Smb2Pool {
     final future = slot.reconnecting = _replace(slot, failed);
     final done = future.then<void>(
       (_) => slot.failures = 0,
-      // A server that refuses the credentials or the share is not asked
-      // again and again: the next call that needs the slot tries.
-      onError: (Object e) {
-        if (e is Smb2Exception && e.isNetworkFailure) _scheduleRetry(slot);
-      },
+      onError: (Object e) => _scheduleRetry(
+        slot,
+        network: e is Smb2Exception && e.isNetworkFailure,
+      ),
     );
     _reconnects.add(done);
     done.whenComplete(() {
@@ -979,11 +1029,15 @@ final class Smb2Pool {
     return worker;
   }
 
-  /// Tries [slot]'s reconnect again in the background, after 1, 2, 4, ...
-  /// up to 32 seconds, until it succeeds or the pool closes.
-  void _scheduleRetry(Slot slot) {
+  /// Tries [slot]'s reconnect again in the background until it succeeds or
+  /// the pool closes: after 1, 2, 4, ... up to 32 seconds when the network
+  /// failed, and every 5 minutes when the server refused (credentials, the
+  /// share), so an account is not locked out by retries.
+  void _scheduleRetry(Slot slot, {required bool network}) {
     if (_closed) return;
-    final delay = Duration(seconds: 1 << min(slot.failures++, 5));
+    final delay = network
+        ? Duration(seconds: 1 << min(slot.failures++, 5))
+        : debugRefusedRetry;
     slot.retry = Timer(delay, () {
       slot.retry = null;
       if (_closed || slot.worker.isUsable || slot.reconnecting != null) return;
@@ -1022,6 +1076,24 @@ Future<T> _orCancel<T>(Future<T> future, Smb2CancelToken? token, String? path) {
 }
 
 T _valueOnly<T>(Slot _, T value) => value;
+
+/// The calls that conflict with a file still open on the server: they wait
+/// for the closes of their paths still in flight.
+const _mutates = {
+  Op.deleteFile,
+  Op.rename,
+  Op.rmdir,
+  Op.truncate,
+  Op.setFileTimes,
+  Op.writeFile,
+  Op.writeRange,
+  Op.openWrite,
+};
+
+/// [path] as the server compares it: leading slashes dropped, backslashes
+/// as slashes, case folded.
+String _pathKey(String path) =>
+    path.replaceAll(r'\', '/').replaceFirst(RegExp('^/+'), '').toLowerCase();
 
 void _noop() {}
 
