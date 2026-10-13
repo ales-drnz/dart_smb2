@@ -32,11 +32,11 @@ dependencies:
 
 | Platform  | Minimum | Architecture | Size | Device | Emulator |
 | :--- | :--- | :--- | :---: | :---: | :---:
-| Android | 7.0 (SDK 24) | arm64-v8a, armeabi-v7a, x86_64 | 281, 284, 282 KB | Yes | Yes |
+| Android | 7.0 (SDK 24) | arm64-v8a, armeabi-v7a, x86_64 | 246, 233, 253 KB | Yes | Yes |
 | iOS | 13.0 | arm64, x86_64 | 286, 250 KB | Yes | Yes |
-| macOS | 10.15 | arm64, x86_64 | 272, 250 KB | Yes | - |
-| Windows | 10 | arm64, x86_64 | 394, 406 KB | Yes | - |
-| Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 291, 296 KB | Yes | - |
+| macOS | 10.15 | arm64, x86_64 | 272, 254 KB | Yes | - |
+| Windows | 10 | arm64, x86_64 | 395, 408 KB | Yes | - |
+| Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 259, 268 KB | Yes | - |
 
 The package needs Dart 3.10, and Flutter 3.38 in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
 
