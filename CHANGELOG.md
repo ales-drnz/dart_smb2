@@ -1,3 +1,68 @@
+## [0.2.0] - 13-10-2026
+
+A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the changes to make in an app.
+
+### Breaking
+- dart_smb2 is a plain Dart package: a build hook bundles libsmb2, and the Flutter plugin (Gradle, CocoaPods, SwiftPM, CMake) is gone. It needs Dart 3.10, Flutter 3.38 in an app, and `minSdk` 24 on Android, which the hook now checks.
+- `Smb2Exception` takes named arguments (`type:`, `ntStatus:`, `errno:`, `path:`, `cause:`) and is `final`.
+- `Smb2ErrorType` gains `notEmpty`, `isADirectory`, `inUse`, `notSupported`, `state` and `cancelled`, and `fileNotFound` becomes an alias of `notFound`: the values, their order and `toString()` change. A closed pool or handle and a client that is not connected report `state`, not `unknown`.
+- `Smb2Exception.errno` and the deprecated `errorCode` are the errno of the failed call (for an open or a listing, of the server's status), and null for a transport failure: 0.1.x read whatever status an earlier call had left.
+- `Smb2Pool.downloadToFile()` takes the destination as a `String` path and writes it atomically.
+- `Smb2Client.listShares()` is static, and `Smb2Client` methods throw `state` on a closed or foreign handle.
+- `mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated after a network failure.
+- `rmdir` of a file fails with `notADirectory` (it deleted the file), `deleteFile` of a directory, or of a link to one, with `isADirectory` (it deleted an empty one, and did nothing on one with entries), and `truncate` of a directory with `isADirectory` (it did nothing).
+- `Smb2Pool.connect(workers: 0)` throws `invalidParam`.
+- `Smb2Stat` requires `accessed` and `changed`, the public types are `final`, `Smb2PoolHandle` no longer exposes `worker`, `id` and `markClosed()`, and the `Smb2File` constructor is internal.
+
+### Added
+- `Smb2CancelToken`, taken by every call on a connected `Smb2Pool` except `closeHandle()`, `disconnect()` and the deprecated `listShares()`.
+- `Smb2Exception.isNetworkFailure`, `isTransient`, `isNotFound`, `isCancelled`, `isAuthError`, `ntStatus` and `errno`.
+- `Smb2ErrorType.fromFailure()`, which `classify()` now calls.
+- `Smb2Stat.accessed`, `changed`, `attributes` and `isHidden`, and times to the microsecond.
+- `Smb2ShareInfo.remark` and `Smb2ShareType.temporary`.
+- `Smb2Client.maxReadSize` and `maxWriteSize`.
+- `Smb2Pool.openFileWrite(truncate:)`, `isClosed` and `defaultChunkSize`.
+- `hooks.user_defines.dart_smb2.libsmb2`, to bundle a local libsmb2.
+- A `NOTICE` on the LGPL-2.1 libsmb2 that apps bundle.
+
+### Changed
+- The error type comes from the server's NT status and from per-platform errno tables: Windows errors were misread. A status counts only when the server answered this call with it.
+- A host name that does not resolve and libsmb2's generic failures are `connection` errors; a server out of resources is `inUse`; a read-only share is `accessDenied`.
+- `streamFile()` reads one chunk ahead, 4 MiB by default; `downloadToFile()` writes at the disk's pace.
+- Calls go to the least busy worker, and the workers connect in parallel.
+- A cancelled call returns at once, also while it waits for a reconnect or a slot.
+- `disconnect()` aborts a reconnect in progress instead of waiting for its connect.
+- Leaving or cancelling a stream, a download or `withFile()` never waits behind a read stuck on the network.
+- A worker that dies is reconnected at once. While a slot cannot reconnect, the other workers serve its calls and it retries in the background; after the server refuses the credentials, the pool tries one login every 5 minutes.
+- Reads reach the calling isolate in native buffers, without a copy.
+- `streamWrite()` repeats a chunk after a reconnect.
+- Paths drop leading slashes and take backslashes.
+- `timeout: Duration` replaces `timeoutSeconds:`, which is deprecated.
+- `Smb2ErrorType.fileNotFound` and `classify()`, `Smb2Exception.isConnectionError` and `errorCode`, and `Smb2PoolHandle.closed` and `refreshFinalizer()` are deprecated: use `notFound` and `fromFailure()`, `isNetworkFailure` and `errno`, and `isClosed`.
+- `Smb2Client.open()`, `openFileHandle()`, `openFileHandleWrite()`, `readHandle()`, `writeHandle()`, `fsync()` and `ftruncate()` are deprecated: use `Smb2Client()`, `openFile()`, `openFileWrite()`, `readFromHandle()`, `writeToHandle()`, `fsyncHandle()` and `ftruncateHandle()`.
+- `isCanceled:` on `streamFile()` and `downloadToFile()`, and the instance `Smb2Pool.listShares()`, are deprecated: use `cancelToken:` and `Smb2Pool.listSharesOn()`.
+
+### Fixed
+- Closing a handle twice freed it twice and aborted the process.
+- `readFileRange()` came back short, and `readFileChunked()` skipped data, for reads above the server's MaxReadSize; a read of 4 GiB or more failed.
+- A handle on a worker replaced by a reconnect failed for good.
+- `Smb2Pool.connect()` hung when a worker isolate died before connecting, and reported `unknown` for wrong credentials.
+- `disconnect()` during a reconnect left a worker and its session alive, or threw an unhandled `RangeError`.
+- `downloadToFile()` emptied the destination when the remote file was missing.
+- A plain `dart test` ran the integration suites, which failed now and then.
+
+### Build
+- libsmb2 is upstream master of 11-10-2026 (e94eee9), which hardens the handling of signed and encrypted replies.
+- `stat` tells a symbolic link from other reparse points, such as cloud files, which it used to report as links.
+- `rmdir` and `unlink` check what they remove, `truncate` refuses a directory, and a request that times out before it is sent fails with `timeout` instead of hanging.
+- Pools that connect and disconnect at once no longer race on libsmb2's context list.
+- The Linux libraries need glibc 2.25 or later instead of 2.38, and every library is stripped and exports libsmb2's API only.
+- The binaries are built and verified on GitHub's runners; each release carries `manifest.json`, `SHA256SUMS` and the LGPL texts.
+- The build hook stops a download that hangs, retries it, and names the user define to set when it fails.
+- CI analyzes the package, tests it on Linux, macOS and Windows and against Samba, builds an app for every platform, and runs `test_app/` on Android, iOS, Linux, macOS and Windows.
+- The example is one Dart file instead of a Flutter app.
+- Updated binaries to `libsmb2-r9` across all platforms.
+
 ## [0.1.3] - 19-09-2026
 
 ### Contributions

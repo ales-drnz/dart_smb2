@@ -12,24 +12,10 @@ pubspec.lock
 *.iml
 .DS_Store
 
-# Native build cache
-.build/
-.swiftpm/
-/android/.gradle/
-/android/build/
-
-# Native binaries (downloaded by build)
-/android/src/main/jniLibs/
-/ios/dart_smb2/Frameworks/
-/macos/dart_smb2/Frameworks/
-/linux/libs/
-/windows/libs/
-
 # AI tooling
 .claude/
 CLAUDE.md
 
-# Tests
+# Integration tests: local settings and the Samba share's data
 test/integration/.env.test
-test/integration/.bootstrap-cache.json
 test/integration/volumes/

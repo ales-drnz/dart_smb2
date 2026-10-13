@@ -4,8 +4,11 @@
 
 import 'package:meta/meta.dart';
 
-/// SMB share type constants.
-abstract class Smb2ShareType {
+import 'pool/pool.dart';
+import 'smb2_client.dart';
+
+/// SMB share type constants (MS-SRVS 2.2.2.4), for [Smb2ShareInfo.type].
+abstract final class Smb2ShareType {
   /// Disk / folder share — the usual file-serving case.
   static const int diskTree = 0;
 
@@ -18,24 +21,36 @@ abstract class Smb2ShareType {
   /// Inter-process communication share (`IPC$`).
   static const int ipc = 3;
 
+  /// Temporary-share flag, OR-ed with the base type.
+  static const int temporary = 0x40000000;
+
   /// Hidden-share flag, OR-ed with the base type (e.g. `C$`, `ADMIN$`).
   static const int hidden = 0x80000000;
 }
 
-/// Information about an SMB share returned by [Smb2Client.listShares].
+/// A share on a server, from [Smb2Pool.listSharesOn] or
+/// [Smb2Client.listShares].
 @immutable
-class Smb2ShareInfo {
+final class Smb2ShareInfo {
   /// Share name (e.g. "Documents", "Music").
   final String name;
 
-  /// Raw share type. Use [Smb2ShareType] constants to interpret.
-  /// The low 2 bits indicate the type, upper bits are flags.
+  /// Raw share type. The low 2 bits are the base type ([Smb2ShareType]),
+  /// the upper bits are flags.
   final int type;
 
-  /// Build a [Smb2ShareInfo] with the raw values returned by the server.
-  const Smb2ShareInfo({required this.name, required this.type});
+  /// The description the server gives the share, often empty.
+  final String remark;
 
-  /// The base type (disk, print, device, IPC).
+  /// Builds a [Smb2ShareInfo] with the values the server returned.
+  const Smb2ShareInfo({
+    required this.name,
+    required this.type,
+    this.remark = '',
+  });
+
+  /// The base type: [Smb2ShareType.diskTree], [Smb2ShareType.printQueue],
+  /// [Smb2ShareType.device] or [Smb2ShareType.ipc].
   int get baseType => type & 0x03;
 
   /// Whether this is a disk/folder share.
@@ -43,14 +58,17 @@ class Smb2ShareInfo {
 
   /// Whether this is a hidden share (e.g. `C$`, `IPC$`).
   bool get isHidden =>
-      (type & Smb2ShareType.hidden) != 0 || name.endsWith('\$');
+      (type & Smb2ShareType.hidden) != 0 || name.endsWith(r'$');
 
   @override
   bool operator ==(Object other) =>
-      other is Smb2ShareInfo && other.name == name && other.type == type;
+      other is Smb2ShareInfo &&
+      other.name == name &&
+      other.type == type &&
+      other.remark == remark;
 
   @override
-  int get hashCode => Object.hash(name, type);
+  int get hashCode => Object.hash(name, type, remark);
 
   @override
   String toString() => 'Smb2ShareInfo(name: $name, type: $type)';
@@ -58,9 +76,8 @@ class Smb2ShareInfo {
 
 /// SMB protocol version to negotiate during connection.
 ///
-/// Controls which SMB dialect the client offers to the server.
-/// Default is [any], which lets the server pick the highest mutually
-/// supported version.
+/// Default is [any], which lets the server pick the highest version both
+/// sides support.
 enum Smb2Version {
   /// Negotiate the highest version supported by both sides (default).
   any(0),
@@ -86,12 +103,12 @@ enum Smb2Version {
   /// SMB 3.1.1 (latest, most secure).
   v311(0x0311);
 
-  /// The numeric value passed to libsmb2's `smb2_set_version`.
+  /// The value passed to libsmb2's `smb2_set_version`.
   final int value;
   const Smb2Version(this.value);
 }
 
-/// SMB2 file type.
+/// What a directory entry is.
 enum Smb2FileType {
   /// Regular file.
   file,
@@ -99,32 +116,44 @@ enum Smb2FileType {
   /// Directory.
   directory,
 
-  /// Symbolic link.
+  /// Symbolic link or other reparse point.
   link,
 }
 
-/// File or directory metadata returned by [Smb2Client.stat] and
-/// [Smb2Client.listDirectory].
+/// File or directory metadata, from [Smb2Client.stat] and the entries of a
+/// directory listing. Timestamps are UTC, to the microsecond.
 @immutable
-class Smb2Stat {
+final class Smb2Stat {
   /// Whether this is a file, directory, or link.
   final Smb2FileType type;
 
   /// Size in bytes. Zero for directories.
   final int size;
 
-  /// Last modification time.
+  /// Last modification of the content.
   final DateTime modified;
 
   /// Creation (birth) time.
   final DateTime created;
 
-  /// Build a [Smb2Stat]. All fields are required; timestamps are in UTC.
+  /// Last access, as far as the server keeps track of it.
+  final DateTime accessed;
+
+  /// Last change of the content or the metadata.
+  final DateTime changed;
+
+  /// The FILE_ATTRIBUTE_* flags of the entry (MS-FSCC 2.6).
+  final int attributes;
+
+  /// Builds a [Smb2Stat].
   const Smb2Stat({
     required this.type,
     required this.size,
     required this.modified,
     required this.created,
+    required this.accessed,
+    required this.changed,
+    this.attributes = 0,
   });
 
   /// True if this is a directory.
@@ -133,35 +162,41 @@ class Smb2Stat {
   /// True if this is a regular file.
   bool get isFile => type == Smb2FileType.file;
 
+  /// True if the server marks the entry hidden (FILE_ATTRIBUTE_HIDDEN).
+  /// Dot files are not hidden by this flag; check the name for those.
+  bool get isHidden => attributes & 0x2 != 0;
+
   @override
   bool operator ==(Object other) =>
       other is Smb2Stat &&
       other.type == type &&
       other.size == size &&
       other.modified == modified &&
-      other.created == created;
+      other.created == created &&
+      other.accessed == accessed &&
+      other.changed == changed &&
+      other.attributes == attributes;
 
   @override
-  int get hashCode => Object.hash(type, size, modified, created);
+  int get hashCode =>
+      Object.hash(type, size, modified, created, accessed, changed, attributes);
 
   @override
   String toString() =>
-      'Smb2Stat(type: $type, size: $size, modified: $modified)';
+      'Smb2Stat(type: ${type.name}, size: $size, modified: $modified)';
 }
 
-/// A directory entry returned by [Smb2Client.listDirectory].
-///
-/// Contains the entry name and full stat metadata, including type, size,
-/// and timestamps — no additional per-entry round-trips required.
+/// A directory entry: its name and its metadata, which the listing returns
+/// without a request per entry.
 @immutable
-class Smb2DirEntry {
+final class Smb2DirEntry {
   /// File or directory name (not a full path).
   final String name;
 
   /// Metadata for this entry.
   final Smb2Stat stat;
 
-  /// Build a [Smb2DirEntry] from a name and its pre-fetched [Smb2Stat].
+  /// Builds a [Smb2DirEntry] from a name and its [Smb2Stat].
   const Smb2DirEntry({required this.name, required this.stat});
 
   /// True if this entry is a directory.
@@ -185,9 +220,9 @@ class Smb2DirEntry {
       'Smb2DirEntry(name: $name, ${stat.type.name}, $size bytes)';
 }
 
-/// Filesystem statistics returned by [Smb2Client.statvfs].
+/// Filesystem statistics of a share, from [Smb2Client.statvfs].
 @immutable
-class Smb2StatVfs {
+final class Smb2StatVfs {
   /// Fundamental block size in bytes.
   final int blockSize;
 
@@ -206,7 +241,7 @@ class Smb2StatVfs {
   /// Maximum filename length.
   final int maxNameLength;
 
-  /// Build a [Smb2StatVfs] from raw libsmb2 statvfs fields.
+  /// Builds a [Smb2StatVfs] from the statvfs fields.
   const Smb2StatVfs({
     required this.blockSize,
     required this.fragmentSize,
@@ -237,13 +272,13 @@ class Smb2StatVfs {
 
   @override
   int get hashCode => Object.hash(
-        blockSize,
-        fragmentSize,
-        totalBlocks,
-        freeBlocks,
-        availableBlocks,
-        maxNameLength,
-      );
+    blockSize,
+    fragmentSize,
+    totalBlocks,
+    freeBlocks,
+    availableBlocks,
+    maxNameLength,
+  );
 
   @override
   String toString() =>

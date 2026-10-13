@@ -2,111 +2,263 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
-/// Shared fixture for the dart_smb2 integration test suite.
-///
-/// Each `*_test.dart` file under `test/integration/` calls [poolFromCache]
-/// (or [clientFromCache]) from `setUpAll` to obtain a connected pool/client.
-/// The credentials come from `test/integration/.bootstrap-cache.json`
-/// written by `bootstrap.dart`, so we don't re-stand-up the Samba container
-/// for every test.
-///
-/// The bootstrap cache also carries a `libPath` pointing at the prebuilt
-/// libsmb2 binary on this dev machine. The fixture wires it into the
-/// package's internal [debugLibSmb2PathOverride] in `setUpAll`, so the
-/// public API can stay path-free (`Smb2Client.open()`,
-/// `Smb2Pool.connect(...)`) while the tests still target the exact
-/// `.dylib` / `.so` checkout the bootstrap container was provisioned
-/// against.
+/// Shared setup of the integration suites: the Samba container's settings
+/// (from `.env.test`, or the defaults of `.env.test.example`), connected
+/// clients and pools, and a scratch directory per suite on the share.
 library;
 
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:dart_smb2/dart_smb2.dart';
-// ignore: implementation_imports — fixture needs the package-internal
-// debugLibSmb2PathOverride to point Smb2Client/Smb2Pool at the test
-// libsmb2 binary without leaking that knob to consumers.
-import 'package:dart_smb2/src/ffi/native_lib.dart';
 
-const String _cacheFile = 'test/integration/.bootstrap-cache.json';
+/// The seed file `bootstrap.dart` keeps on the share: 1 MiB of zeros.
+const seedFile = 'dart_smb2_seed.bin';
 
-/// Skip reason for the integration suite when the bootstrap hasn't been run
-/// yet. Pass to `group(..., skip: bootstrapSkipReason)` so `dart test` shows
-/// a clear message instead of failing.
-String? get bootstrapSkipReason {
-  if (File(_cacheFile).existsSync()) return null;
-  return 'Bootstrap cache missing at $_cacheFile. '
-      'Run `dart run test/integration/bootstrap.dart` first.';
-}
+/// Size of [seedFile].
+const seedSize = 1024 * 1024;
 
-class Smb2BootstrapCache {
+/// The Samba container's settings.
+final class TestServer {
   final String host;
+  final int port;
   final String share;
   final String user;
   final String password;
-  final String libPath;
-  final String testFile;
 
-  const Smb2BootstrapCache({
-    required this.host,
-    required this.share,
-    required this.user,
-    required this.password,
-    required this.libPath,
-    required this.testFile,
-  });
+  const TestServer(this.host, this.port, this.share, this.user, this.password);
 
-  factory Smb2BootstrapCache.load() {
-    final file = File(_cacheFile);
-    if (!file.existsSync()) {
-      throw StateError(
-        'Bootstrap cache missing at $_cacheFile. '
-        'Run `dart run test/integration/bootstrap.dart` first.',
-      );
+  /// Reads `test/integration/.env.test`, falling back to the example file.
+  factory TestServer.load() {
+    var file = File('test/integration/.env.test');
+    if (!file.existsSync()) file = File('test/integration/.env.test.example');
+    final env = <String, String>{};
+    for (final line in file.readAsLinesSync()) {
+      final t = line.trim();
+      final eq = t.indexOf('=');
+      if (t.isEmpty || t.startsWith('#') || eq <= 0) continue;
+      env[t.substring(0, eq).trim()] = t.substring(eq + 1).trim();
     }
-    final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-    return Smb2BootstrapCache(
-      host: json['host'] as String,
-      share: json['share'] as String,
-      user: json['user'] as String,
-      password: json['password'] as String,
-      libPath: json['libPath'] as String,
-      testFile: json['testFile'] as String,
+    final port = env['SMB2_HOST_PORT'] ?? '445';
+    return TestServer(
+      port == '445' ? '127.0.0.1' : '127.0.0.1:$port',
+      int.parse(port),
+      env['SMB2_SHARE'] ?? 'public',
+      env['SMB2_USER'] ?? 'testuser',
+      env['SMB2_PASS'] ?? 'testpass',
     );
   }
 }
 
-/// Idempotently point the package at the test libsmb2 binary recorded in
-/// the bootstrap cache. Safe to call from every `setUpAll` — it just
-/// overwrites the same path each time.
-void installTestLibPath() {
-  debugLibSmb2PathOverride = Smb2BootstrapCache.load().libPath;
-}
+/// The server of this run.
+final server = TestServer.load();
 
-/// Build a connected [Smb2Pool] from the bootstrap cache.
-///
-/// When the cache is missing, throws — but `setUpAll` guarded by the outer
-/// `group(skip: bootstrapSkipReason)` should never run, so this is only a
-/// belt-and-braces safeguard for direct invocations.
-Future<Smb2Pool> poolFromCache({int workers = 2}) {
-  installTestLibPath();
-  final cache = Smb2BootstrapCache.load();
-  return Smb2Pool.connect(
-    host: cache.host,
-    share: cache.share,
-    user: cache.user,
-    password: cache.password,
-    workers: workers,
+/// A connected sync client.
+Smb2Client connectClient() => Smb2Client()
+  ..connect(
+    host: server.host,
+    share: server.share,
+    user: server.user,
+    password: server.password,
   );
+
+/// A connected pool, to the server or to [host] (a [TcpProxy]'s).
+Future<Smb2Pool> connectPool({
+  int workers = 2,
+  Duration? timeout,
+  String? host,
+}) => Smb2Pool.connect(
+  host: host ?? server.host,
+  share: server.share,
+  user: server.user,
+  password: server.password,
+  workers: workers,
+  timeout: timeout ?? const Duration(seconds: 30),
+);
+
+/// A directory of its own on the share for one suite, so suites never see
+/// each other's files. Created by [create], removed with everything in it
+/// by [delete].
+final class Scratch {
+  /// Share-relative path of the directory.
+  final String dir;
+
+  Scratch(String suite)
+    : dir =
+          '$scratchPrefix${suite}_${Random().nextInt(1 << 32).toRadixString(16)}';
+
+  /// [name] inside the directory.
+  String path(String name) => '$dir/$name';
+
+  /// Creates the directory.
+  void create() {
+    final c = connectClient();
+    try {
+      c.mkdir(dir);
+    } finally {
+      c.disconnect();
+    }
+  }
+
+  /// Removes the directory and its content.
+  void delete() {
+    final c = connectClient();
+    try {
+      deleteTree(c, dir);
+    } finally {
+      c.disconnect();
+    }
+  }
 }
 
-/// Build a synchronous [Smb2Client] from the bootstrap cache. Used by the
-/// `smb2_client_test.dart` suite that exercises the low-level sync API.
-Smb2Client clientFromCache() {
-  installTestLibPath();
-  return Smb2Client.open();
+/// The prefix of every [Scratch] directory.
+const scratchPrefix = 'zz_';
+
+/// Removes [dir] on the share and everything in it.
+void deleteTree(Smb2Client c, String dir) {
+  for (final e in c.listDirectory(dir)) {
+    final p = '$dir/${e.name}';
+    e.isDirectory ? deleteTree(c, p) : c.deleteFile(p);
+  }
+  c.rmdir(dir);
 }
 
-/// The cache exposed for tests that need to read specific fields (e.g. the
-/// `testFile` path or `host` for share enumeration).
-Smb2BootstrapCache get bootstrapCache => Smb2BootstrapCache.load();
+/// What a [TcpProxy] does with a new connection.
+enum ProxyMode {
+  /// Passes it through to the server.
+  forward,
+
+  /// Accepts it and closes it at once.
+  refuse,
+
+  /// Accepts it and never answers.
+  blackhole,
+}
+
+/// A TCP proxy in front of the Samba container that a test can break:
+/// cut its connections, freeze them, or refuse or swallow new ones. Pools
+/// reach it at [host].
+final class TcpProxy {
+  final ServerSocket _server;
+  final List<_Link> _links = [];
+  final List<Socket> _swallowed = [];
+
+  /// What happens to the next connections.
+  ProxyMode mode = ProxyMode.forward;
+
+  TcpProxy._(this._server);
+
+  /// A proxy on a free port of the loopback.
+  static Future<TcpProxy> start() async {
+    final proxy = TcpProxy._(
+      await ServerSocket.bind(InternetAddress.loopbackIPv4, 0),
+    );
+    proxy._server.listen(proxy._accept);
+    return proxy;
+  }
+
+  /// The host to connect a pool to.
+  String get host => '127.0.0.1:${_server.port}';
+
+  /// Connections passed through so far.
+  int get forwarded => _links.length;
+
+  Future<void> _accept(Socket client) async {
+    switch (mode) {
+      case ProxyMode.refuse:
+        client.destroy();
+      case ProxyMode.blackhole:
+        _swallowed.add(client);
+        client.done.ignore();
+        client.listen((_) {}, onError: (Object _) {}, cancelOnError: true);
+      case ProxyMode.forward:
+        // ignore: close_sinks, the link closes it
+        final Socket upstream;
+        try {
+          upstream = await Socket.connect('127.0.0.1', server.port);
+        } on SocketException {
+          client.destroy();
+          return;
+        }
+        _links.add(_Link(client, upstream));
+    }
+  }
+
+  /// Cuts connection [index] (in the order they were made), or every one.
+  void drop([int? index]) {
+    for (final l in index == null ? _links : [_links[index]]) {
+      l.close();
+    }
+  }
+
+  /// Stops passing data on the open connections, as a server that hangs.
+  void freeze() {
+    for (final l in _links) {
+      l.pause();
+    }
+  }
+
+  /// Passes data again after [freeze].
+  void thaw() {
+    for (final l in _links) {
+      l.resume();
+    }
+  }
+
+  /// Closes the proxy and every connection.
+  Future<void> close() async {
+    drop();
+    for (final s in _swallowed) {
+      s.destroy();
+    }
+    await _server.close();
+  }
+}
+
+/// One proxied connection.
+final class _Link {
+  final Socket client;
+  final Socket upstream;
+  late final StreamSubscription<List<int>> _up;
+  late final StreamSubscription<List<int>> _down;
+
+  _Link(this.client, this.upstream) {
+    // A cut connection fails its pending writes: nobody waits for them.
+    client.done.ignore();
+    upstream.done.ignore();
+    _up = client.listen(
+      (data) => _send(upstream, data),
+      onDone: close,
+      onError: (Object _) => close(),
+    );
+    _down = upstream.listen(
+      (data) => _send(client, data),
+      onDone: close,
+      onError: (Object _) => close(),
+    );
+  }
+
+  static void _send(Socket to, List<int> data) {
+    try {
+      to.add(data);
+    } on Object {
+      // Closed under us: the other side sees it on its own.
+    }
+  }
+
+  void pause() {
+    _up.pause();
+    _down.pause();
+  }
+
+  void resume() {
+    _up.resume();
+    _down.resume();
+  }
+
+  void close() {
+    client.destroy();
+    upstream.destroy();
+  }
+}

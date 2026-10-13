@@ -1,34 +1,30 @@
-# Static analysis configuration for dart_smb2.
+# Static analysis configuration for a published package.
 #
-# Builds on package:lints/recommended (the set pub.dev scores against) with a
-# curated stricter ruleset appropriate for a published library: enforced API
-# docs, const usage, trailing commas, and awaited futures.
+# Builds on package:lints/recommended with a stricter, curated ruleset:
+# enforced API docs, stricter type checking, const correctness, trailing
+# commas, and awaited futures.
 
 include: package:lints/recommended.yaml
 
 analyzer:
   language:
     strict-casts: true
+    strict-inference: true
     strict-raw-types: true
   exclude:
-    - docs/**
+    # A Flutter app with its own lints, analyzed by its CI job.
+    - test_app/**
 
 linter:
   rules:
-    # Public API hygiene for a published package.
     - public_member_api_docs
-    - package_api_docs
-    # Const correctness.
     - prefer_const_constructors
     - prefer_const_constructors_in_immutables
     - prefer_const_declarations
     - prefer_const_literals_to_create_immutables
-    # Immutability / finals.
     - prefer_final_locals
     - prefer_final_in_for_each
-    # Async safety.
     - unawaited_futures
-    # Style / consistency.
     - require_trailing_commas
     - directives_ordering
     - sort_pub_dependencies
@@ -36,3 +32,22 @@ linter:
     - use_super_parameters
     - avoid_redundant_argument_values
     - unnecessary_parenthesis
+    - avoid_dynamic_calls
+    - comment_references
+    - unnecessary_lambdas
+    - prefer_final_fields
+    - always_declare_return_types
+    - type_annotate_public_apis
+    - cancel_subscriptions
+    - close_sinks
+    - avoid_slow_async_io
+    - literal_only_boolean_expressions
+    - no_adjacent_strings_in_list
+    - test_types_in_equals
+    - throw_in_finally
+    - unnecessary_statements
+    - unnecessary_await_in_return
+    - prefer_void_to_null
+    - avoid_catching_errors
+    - only_throw_errors
+    - discarded_futures

@@ -2,10 +2,10 @@
 #
 # Bring up:
 #   docker compose --env-file .env.test up -d --wait
-# Tear down (keep data on disk):
+# Tear down (the share's files stay in ./volumes/share, a bind mount):
 #   docker compose down
-# Tear down + wipe the share data:
-#   docker compose down -v
+# Wipe the share's files as well:
+#   docker compose down && rm -rf volumes
 #
 # Port 445 is bound to 127.0.0.1 only so the test server is not reachable
 # from the LAN. If your dev machine has macOS File Sharing enabled (or any
@@ -14,7 +14,8 @@
 
 services:
   samba:
-    image: ghcr.io/servercontainers/samba:latest
+    # Pinned by digest, so every run tests against the same Samba.
+    image: ghcr.io/servercontainers/samba@sha256:f4b569b4557c46b06bc05a0602e8d72173b973143b292ae785d60612111176e4
     container_name: dart-smb2-test
     restart: "no"
     ports:
@@ -26,7 +27,9 @@ services:
       # variable names, only values), so changing it requires editing both
       # files in sync.
       ACCOUNT_testuser: "${SMB2_PASS}"
-      UID_testuser: "1000"
+      # bootstrap.dart passes the calling user's uid, so the account owns
+      # the bind-mounted share like the host user does (1000 by default).
+      UID_testuser: "${SMB2_UID:-1000}"
       GROUPS_testuser: "users"
 
       # Share config — full smb.conf section. The image picks up any env var

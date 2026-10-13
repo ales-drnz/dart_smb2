@@ -1,0 +1,30 @@
+name: dart_smb2_test_app
+description: >
+  Internal test harness for dart_smb2's on-device integration tests: it
+  loads the libsmb2 the build hook bundles on Android, iOS, Linux, macOS and
+  Windows and drives it, offline and against a server. Not a demo, not
+  published. The example/ file is the user-facing demo.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.10.0
+  flutter: '>=3.38.0'
+
+dependencies:
+  dart_smb2:
+    path: ../
+  flutter:
+    sdk: flutter
+  # A writable directory on every platform for downloadToFile.
+  path_provider: ^2.1.5
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

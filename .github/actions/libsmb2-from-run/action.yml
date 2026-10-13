@@ -1,0 +1,89 @@
+name: libsmb2 from a libsmb2-scripts run
+description: >-
+  Bundles the libraries of a libsmb2-scripts CI run instead of the pinned
+  release, through the build hook's libsmb2 user define. For testing a
+  libsmb2 build before its release exists. Does nothing without a run id.
+inputs:
+  run-id:
+    description: The libsmb2-scripts workflow run whose libsmb2-release artifact to use.
+    required: false
+    default: ''
+  token:
+    description: >-
+      A token with Actions read access on libsmb2-scripts. The workflow's
+      own GITHUB_TOKEN cannot read another repository's artifacts.
+    required: false
+    default: ''
+  pubspecs:
+    description: The pubspec.yaml files to point at it, separated by spaces.
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: check
+      if: inputs.run-id != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        RUN_ID: ${{ inputs.run-id }}
+        FORK: ${{ github.event.pull_request.head.repo.fork }}
+      run: |
+        if [[ -z "$GH_TOKEN" ]]; then
+          if [[ "$FORK" == true ]]; then
+            # A pull request from a fork gets no secrets: it builds against
+            # the pinned release instead.
+            echo "::warning::No LIBSMB2_SCRIPTS_TOKEN on a fork pull request: using the pinned libsmb2 release."
+            echo "use=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::LIBSMB2_SCRIPTS_RUN is set but LIBSMB2_SCRIPTS_TOKEN is not: add a token with Actions read access on ales-drnz/libsmb2-scripts."
+          exit 1
+        fi
+        # Say which build is under test, and refuse one that did not pass.
+        read -r sha branch conclusion < <(gh api \
+          "repos/ales-drnz/libsmb2-scripts/actions/runs/$RUN_ID" \
+          --jq '"\(.head_sha) \(.head_branch) \(.conclusion)"')
+        echo "libsmb2-scripts run $RUN_ID: $branch at $sha, $conclusion"
+        if [[ "$conclusion" != success ]]; then
+          echo "::error::libsmb2-scripts run $RUN_ID did not succeed ($conclusion)."
+          exit 1
+        fi
+        echo "use=true" >> "$GITHUB_OUTPUT"
+    - if: steps.check.outputs.use == 'true'
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: libsmb2-release
+        repository: ales-drnz/libsmb2-scripts
+        run-id: ${{ inputs.run-id }}
+        github-token: ${{ inputs.token }}
+        path: ${{ runner.temp }}/libsmb2
+    - if: steps.check.outputs.use == 'true'
+      shell: bash
+      env:
+        # Through the environment, not interpolated into the script: bash
+        # would eat the backslashes of a Windows path.
+        PUBSPECS: ${{ inputs.pubspecs }}
+      run: |
+        # The user define skips the hook's checksums, so a table that does
+        # not match these binaries would stay green until the release.
+        hook="$GITHUB_WORKSPACE/hook/build.dart"
+        jq -r '.assets | to_entries[] | "\(.key) \(.value)"' \
+          "$RUNNER_TEMP/libsmb2/manifest.json" |
+          while read -r asset sha; do
+            # jq.exe on Windows ends its lines with CRLF.
+            sha="${sha%$'\r'}"
+            grep -q "$sha" "$hook" ||
+              echo "::warning::$asset of this run is not the one pinned in hook/build.dart; run tool/update_libsmb2.sh before the release."
+          done
+        # A path pub reads on Windows too (D:/a/..., not D:\a\...).
+        libs="$(cygpath -m "$RUNNER_TEMP/libsmb2" 2>/dev/null || echo "$RUNNER_TEMP/libsmb2")"
+        IFS=' ' read -r -a pubspecs <<< "$PUBSPECS"
+        for pubspec in "${pubspecs[@]}"; do
+          pubspec="$(cygpath -u "$pubspec" 2>/dev/null || echo "$pubspec")"
+          if grep -q '^hooks:' "$pubspec"; then
+            echo "::error::$pubspec already has a hooks section."
+            exit 1
+          fi
+          printf '\nhooks:\n  user_defines:\n    dart_smb2:\n      libsmb2: %s\n' \
+            "$libs" >> "$pubspec"
+        done

@@ -1,9 +1,9 @@
 # dart_smb2
 
-#### SMB2/3 client for Dart & Flutter.
+#### SMB2/3 client for Dart and Flutter.
 
 [![](https://img.shields.io/pub/v/dart_smb2.svg?style=for-the-badge&logo=dart&logoColor=white)](https://pub.dev/packages/dart_smb2)
-[![](https://img.shields.io/badge/libsmb2-v6.1.0-orange.svg?style=for-the-badge)](https://github.com/sahlberg/libsmb2)
+[![](https://img.shields.io/badge/libsmb2-r9-orange.svg?style=for-the-badge)](https://github.com/ales-drnz/libsmb2-scripts)
 [![](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg?style=for-the-badge)](LICENSE)
 [![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ales-drnz/dart_smb2)
 [![](https://img.shields.io/discord/1485588004029333516?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/g2Qf4Mq9MP)
@@ -13,7 +13,7 @@
 <table>
 <tr>
 <td valign="middle" width="90"><img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/dart_smb2.png" width="70" alt="logo"></td>
-<td valign="middle"><code>dart_smb2</code> is a Dart client for SMB2/3 file shares built on libsmb2 <code>v6.1.0</code>. It provides a streaming API for reading, writing and managing files over the network across desktop and mobile.</td>
+<td valign="middle"><code>dart_smb2</code> is a Dart client for SMB2 and SMB3 file shares, built on libsmb2. It lists, reads, streams, downloads and writes files on Samba, Windows and NAS shares from worker isolates that reconnect on their own.</td>
 </tr>
 </table>
 
@@ -25,131 +25,122 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.1.3
+  dart_smb2: ^0.2.0
 ```
 
----
+## Platform requirements
 
-## Platforms
+| Platform  | Minimum | Architecture | Size | Device | Emulator |
+| :--- | :--- | :--- | :---: | :---: | :---:
+| Android | 7.0 (SDK 24) | arm64-v8a, armeabi-v7a, x86_64 | 246, 233, 253 KB | Yes | Yes |
+| iOS | 13.0 | arm64, x86_64 | 271, 235 KB | Yes | Yes |
+| macOS | 10.15 | arm64, x86_64 | 257, 239 KB | Yes | - |
+| Windows | 10 | arm64, x86_64 | 238, 256 KB | Yes | - |
+| Linux | glibc 2.25, built on 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 259, 268 KB | Yes | - |
 
-| Platform  | Minimum | Architecture | Device | Emulator |
-| :--- | :--- | :--- | :---: | :---:
-| **Android** | 7.0 (SDK 24) | arm64-v8a, armeabi-v7a, x86_64 | ✅ | ✅ |
-| **iOS** | 15.0 | arm64, x86_64 | ✅ | ✅ |
-| **macOS** | 12.0 | arm64, x86_64 | ✅ | – |
-| **Windows**| 10 | arm64, x86_64 | ✅ | – |
-| **Linux** | Ubuntu 24.04 | aarch64, x86_64 | ✅ | – |
+The package needs Dart 3.10, and Flutter 3.38 in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
+
+### How libsmb2 reaches the app
+
+A Dart build hook downloads the libsmb2 build for each target from this repository's releases, checks it against a pinned SHA-256 and bundles it with the app, as `libdart_smb2.so` on Android and Linux, `dart_smb2.dll` on Windows and `libdart_smb2.framework` on iOS and macOS. The first build of each target needs network access; later builds of the same project reuse the download, until `flutter clean` (or a fresh clone) removes it.
+
+For offline builds or a libsmb2 of your own, point the hook at local files in your app's `pubspec.yaml`:
+
+```yaml
+hooks:
+  user_defines:
+    dart_smb2:
+      libsmb2: path/to/libsmb2
+```
+
+The path can be a directory holding files named like the release assets (`libsmb2_android-arm64-v8a.so`, `libsmb2_ios.xcframework.zip` and so on), such as the `release_builds/` folder of [libsmb2-scripts](https://github.com/ales-drnz/libsmb2-scripts), and each target takes its own. A single file is bundled for every target, so it only suits a build for one target and architecture. Local files are bundled without a checksum, and must be builds of the pinned release, `libsmb2-r9` from libsmb2-scripts 0.2.0 or later: an older libsmb2 loads, but reads the stat fields wrong and lacks the lock that lets the workers connect in parallel.
 
 ---
 
 ## Contents
 
-*   [Visuals](#visuals)
 *   [Features](#features)
-*   [Quick Start](#quick-start)
+*   [Quick start](#quick-start)
 *   [Guide](#guide)
     <details>
-    <summary><a href="#1-connection--lifecycle"><b>1. Connection & Lifecycle</b></a></summary>
+    <summary><a href="#1-connection-and-lifecycle"><b>1. Connection and lifecycle</b></a></summary>
 
-    * [1.1 Sync Client](#11-sync-client)
-    * [1.2 Worker Pool](#12-worker-pool)
-    * [1.3 Disconnecting](#13-disconnecting)
-    * [1.4 Security Options](#14-security-options)
-
-    </details>
-
-    <details>
-    <summary><a href="#2-path-format"><b>2. Path Format</b></a></summary>
-    </details>
-
-    <details>
-    <summary><a href="#3-directory-listing"><b>3. Directory Listing</b></a></summary>
-    </details>
-
-    <details>
-    <summary><a href="#4-file-metadata"><b>4. File Metadata</b></a></summary>
-
-    * [4.1 Stat](#41-stat)
-    * [4.2 File Size](#42-file-size)
-    * [4.3 Exists](#43-exists)
-    * [4.4 Filesystem Info (statvfs)](#44-filesystem-info-statvfs)
-    * [4.5 Read Symlink](#45-read-symlink)
-    * [4.6 Connection Health (echo)](#46-connection-health-echo)
+    * [1.1 Connecting a pool](#11-connecting-a-pool)
+    * [1.2 Connection options](#12-connection-options)
+    * [1.3 Listing the shares of a server](#13-listing-the-shares-of-a-server)
+    * [1.4 Disconnecting](#14-disconnecting)
 
     </details>
 
     <details>
-    <summary><a href="#5-reading-files"><b>5. Reading Files</b></a></summary>
-
-    * [5.1 Read Entire File](#51-read-entire-file)
-    * [5.2 Partial Read (Byte Range)](#52-partial-read-byte-range)
-    * [5.3 Scoped File Access (withFile)](#53-scoped-file-access-withfile)
-    * [5.4 Streaming (Chunked)](#54-streaming-chunked)
-    * [5.5 Download to File](#55-download-to-file)
-    * [5.6 Low-Level File Handles](#56-low-level-file-handles)
+    <summary><a href="#2-paths"><b>2. Paths</b></a></summary>
 
     </details>
 
     <details>
-    <summary><a href="#6-writing-files"><b>6. Writing Files</b></a></summary>
+    <summary><a href="#3-directories-and-metadata"><b>3. Directories and metadata</b></a></summary>
 
-    * [6.1 Write Entire File](#61-write-entire-file)
-    * [6.2 Partial Write (Byte Range)](#62-partial-write-byte-range)
-    * [6.3 Streaming Write (Chunked)](#63-streaming-write-chunked)
-    * [6.4 File Handles (Write)](#64-file-handles-write)
-    * [6.5 Flush (fsync)](#65-flush-fsync)
-    * [6.6 Truncate Handle (ftruncate)](#66-truncate-handle-ftruncate)
+    * [3.1 Listing a directory](#31-listing-a-directory)
+    * [3.2 Stat, size and existence](#32-stat-size-and-existence)
+    * [3.3 Space on the share](#33-space-on-the-share)
 
     </details>
 
     <details>
-    <summary><a href="#7-file--directory-management"><b>7. File & Directory Management</b></a></summary>
+    <summary><a href="#4-reading-files"><b>4. Reading files</b></a></summary>
 
-    * [7.1 Create Directory](#71-create-directory)
-    * [7.2 Delete File](#72-delete-file)
-    * [7.3 Delete Directory](#73-delete-directory)
-    * [7.4 Rename / Move](#74-rename--move)
-    * [7.5 Truncate](#75-truncate)
-    * [7.6 Set File Times](#76-set-file-times)
+    * [4.1 Whole files and ranges](#41-whole-files-and-ranges)
+    * [4.2 A file open for several reads](#42-a-file-open-for-several-reads)
+    * [4.3 Handles](#43-handles)
 
     </details>
 
     <details>
-    <summary><a href="#8-share-enumeration"><b>8. Share Enumeration</b></a></summary>
+    <summary><a href="#5-streaming-and-downloads"><b>5. Streaming and downloads</b></a></summary>
+
+    * [5.1 Streaming a file](#51-streaming-a-file)
+    * [5.2 Downloading to disk](#52-downloading-to-disk)
+
     </details>
 
     <details>
-    <summary><a href="#9-error-handling"><b>9. Error Handling</b></a></summary>
+    <summary><a href="#6-writing-files"><b>6. Writing files</b></a></summary>
 
-    * [9.1 Smb2Exception](#91-smb2exception)
-    * [9.2 Error Types](#92-error-types)
+    * [6.1 Whole files and ranges](#61-whole-files-and-ranges)
+    * [6.2 Streaming a write](#62-streaming-a-write)
+    * [6.3 Write handles](#63-write-handles)
 
     </details>
 
-*   [Types Reference](#types-reference)
+    <details>
+    <summary><a href="#7-managing-files-and-directories"><b>7. Managing files and directories</b></a></summary>
+
+    </details>
+
+    <details>
+    <summary><a href="#8-cancellation"><b>8. Cancellation</b></a></summary>
+
+    </details>
+
+    <details>
+    <summary><a href="#9-errors-and-reconnects"><b>9. Errors and reconnects</b></a></summary>
+
+    * [9.1 Error types](#91-error-types)
+    * [9.2 Reconnects](#92-reconnects)
+
+    </details>
+
+    <details>
+    <summary><a href="#10-the-synchronous-client"><b>10. The synchronous client</b></a></summary>
+
+    </details>
+
+    <details>
+    <summary><a href="#11-the-native-library"><b>11. The native library</b></a></summary>
+
+    </details>
 *   [Permissions](#permissions)
 *   [Project background](#project-background)
-
----
-
-## Visuals
-
-The following images demonstrate the example app included in the `example/` directory. This application serves as a reference client for testing the various features and capabilities of dart_smb2.
-
-<table width="100%">
-  <tr>
-    <td width="25%"><img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/mobile_servers.png" width="100%"></td>
-    <td width="25%" align="left"><b>Servers</b><br>Manage saved connections</td>
-    <td width="25%"><img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/mobile_browse.png" width="100%"></td>
-    <td width="25%" align="left"><b>Browse</b><br>Tree explorer</td>
-  </tr>
-  <tr>
-    <td width="25%"><img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/mobile_read.png" width="100%"></td>
-    <td width="25%" align="left"><b>Read</b><br>Reading performance test</td>
-    <td width="25%"><img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/mobile_write.png" width="100%"></td>
-    <td width="25%" align="left"><b>Write</b><br>Writing performance test</td>
-  </tr>
-</table>
 
 ---
 
@@ -158,94 +149,72 @@ The following images demonstrate the example app included in the `example/` dire
 <table>
 <tr>
 <td valign="middle" width="48"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/package.png" width="32"></td>
-<td valign="middle" width="45%"><b>Pure Dart FFI</b><br>synchronous bindings to libsmb2 via <code>dart:ffi</code>, with native binaries bundled for every supported platform.</td>
-<td valign="middle" width="48"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/globe.png" width="32"></td>
-<td valign="middle" width="45%"><b>Cross-platform</b><br>runs on macOS, Windows, Linux, iOS and Android — same API on every host.</td>
+<td valign="middle" width="45%"><b>Pure Dart</b><br>no Flutter plugin: a <a href="#11-the-native-library">build hook</a> bundles libsmb2 for Android, iOS, Linux, macOS and Windows, checked against pinned SHA-256s.</td>
+<td valign="middle" width="48"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/layers.png" width="32"></td>
+<td valign="middle" width="45%"><b>Worker isolates</b><br><a href="#11-connecting-a-pool"><code>Smb2Pool</code></a> runs one connection per isolate and sends each call to the least busy one; the UI isolate never waits on the network.</td>
 </tr>
 <tr>
-<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/file-code.png" width="32"></td>
-<td valign="middle"><b>SMB 2.02 → 3.1.1</b><br>full protocol coverage including encryption (<code>seal</code>), signing and version pinning via <code>Smb2Version</code>.</td>
-<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/wrench.png" width="32"></td>
-<td valign="middle"><b>Worker pool</b><br><code>Smb2Pool</code> spreads requests across N isolate workers and reconnects transparently when a connection drops.</td>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/activity.png" width="32"></td>
+<td valign="middle"><b>Reconnects</b><br>a dropped connection is <a href="#92-reconnects">reconnected once</a> for every caller, the call repeated when that is safe, and open files reopened.</td>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/download.png" width="32"></td>
+<td valign="middle"><b>Streaming and downloads</b><br><a href="#51-streaming-a-file"><code>streamFile()</code></a> reads one chunk ahead; <a href="#52-downloading-to-disk"><code>downloadToFile()</code></a> writes at the disk's pace and renames into place only when complete.</td>
+</tr>
+<tr>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/zap.png" width="32"></td>
+<td valign="middle"><b>Cancellation</b><br>every call on a connected pool but the closing ones takes an <a href="#8-cancellation"><code>Smb2CancelToken</code></a>, the same as dart_plex's and dart_jellyfin's.</td>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/triangle-alert.png" width="32"></td>
+<td valign="middle"><b>Typed errors</b><br>every failure is a <a href="#91-error-types"><code>Smb2Exception</code></a> classified from the server's NT status: auth, not found, network, transient, cancelled.</td>
+</tr>
+<tr>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/cpu.png" width="32"></td>
+<td valign="middle"><b>No extra copies</b><br>reads land in native buffers that reach your isolate without a copy.</td>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/key-round.png" width="32"></td>
+<td valign="middle"><b>SMB3 security</b><br>NTLM sign-in, <a href="#12-connection-options">encryption and signing</a>, and the dialect you choose, up to SMB 3.1.1.</td>
 </tr>
 <tr>
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/folder.png" width="32"></td>
-<td valign="middle"><b>File & directory ops</b><br><code>listDirectory</code>, <code>stat</code>, <code>exists</code>, <code>mkdir</code>, <code>rmdir</code>, <code>rename</code>, <code>deleteFile</code>, <code>truncate</code>, <code>setFileTimes</code> and symlink resolution.</td>
-<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/download.png" width="32"></td>
-<td valign="middle"><b>Streaming reads & writes</b><br>chunked I/O via sync <code>Iterable</code> or async <code>Stream</code>, with <code>onProgress</code> + <code>isCanceled</code> callbacks and a single persistent handle.</td>
-</tr>
-<tr>
-<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/shield-check.png" width="32"></td>
-<td valign="middle"><b>Safe handles</b><br><code>withFile(path, body)</code> opens a handle, runs your callback and guarantees <code>closeHandle</code> on any exit path. A <code>Finalizer</code> closes leaked handles as a safety net.</td>
-<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/hard-drive.png" width="32"></td>
-<td valign="middle"><b>Filesystem info</b><br><code>statvfs</code> for free/total disk space, <code>listShares</code> for share enumeration, <code>echo</code> for keepalive ping.</td>
-</tr>
-<tr>
-<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/layers.png" width="32"></td>
-<td valign="middle"><b>Auto-reconnect</b><br>dropped connections are detected and re-established transparently — the failed operation is reopened and retried without surfacing the disruption to your code.</td>
-<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/triangle-alert.png" width="32"></td>
-<td valign="middle"><b>Semantic errors</b><br>one <code>Smb2Exception</code> hierarchy with <code>Smb2ErrorType</code> enum (<code>auth</code>, <code>fileNotFound</code>, <code>connection</code>, <code>alreadyExists</code>, …), never raw NTSTATUS codes in your code.</td>
+<td valign="middle"><b>Files and directories</b><br>listings with metadata, ranges, handles, writes, renames, timestamps, share space and share enumeration.</td>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/terminal.png" width="32"></td>
+<td valign="middle"><b>Synchronous client</b><br><a href="#10-the-synchronous-client"><code>Smb2Client</code></a>, the client the workers run, for code that manages its own isolates.</td>
 </tr>
 </table>
 
 ---
 
-## Quick Start
+## Quick start
 
 ```dart
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:dart_smb2/dart_smb2.dart';
 
-void main() async {
-  // Connect the worker pool (auto-reconnect on connection errors)
+Future<void> main() async {
   final pool = await Smb2Pool.connect(
-    host: '192.168.1.100',
-    share: 'Files',
-    user: 'user',
-    password: 'pass',
+    host: '192.168.1.10',
+    share: 'Music',
+    user: 'alice',
+    password: 'secret',
   );
+  try {
+    // List the share's root.
+    for (final entry in await pool.listDirectory('')) {
+      print('${entry.name}  ${entry.isDirectory ? 'dir' : '${entry.size} B'}');
+    }
 
-  // List a directory
-  final entries = await pool.listDirectory('Documents/Projects');
-  for (final entry in entries) {
-    print('${entry.name} — ${entry.size} bytes');
+    // Read a small file whole.
+    final cover = await pool.readFile('Album/cover.jpg');
+    print('cover: ${cover.length} bytes');
+
+    // Download a large one to disk.
+    final bytes = await pool.downloadToFile(
+      'Album/01 - Intro.flac',
+      '/tmp/intro.flac',
+      onProgress: (received, total) => print('$received / $total'),
+    );
+    print('downloaded $bytes bytes');
+  } on Smb2Exception catch (e) {
+    print('SMB error: ${e.type.name}: ${e.message}');
+  } finally {
+    await pool.disconnect();
   }
-
-  // Read the first 256 KB of a file
-  final header = await pool.readFileRange(
-    'Documents/report.pdf',
-    length: 256 * 1024,
-  );
-
-  // Download a file to disk with progress + cancel
-  await pool.downloadToFile(
-    'Music/song.flac',
-    File('/tmp/song.flac'),
-    onProgress: (received, total) =>
-        print('${(received / total * 100).toStringAsFixed(1)}%'),
-  );
-
-  // Read on-demand with a scoped handle (auto-closed)
-  final tags = await pool.withFile('Music/song.flac', (file) async {
-    final header = await file.read(length: 64 * 1024);
-    return parseTags(header); // your code
-  });
-
-  // Write a file
-  await pool.writeFile(
-    'Documents/notes.txt',
-    Uint8List.fromList('Hello SMB!'.codeUnits),
-  );
-
-  // Create a directory
-  await pool.mkdir('Documents/NewFolder');
-
-  // Get file info
-  final info = await pool.stat('Documents/report.pdf');
-  print('Size: ${info.size}, Modified: ${info.modified}');
-
-  await pool.disconnect();
 }
 ```
 
@@ -253,773 +222,333 @@ void main() async {
 
 ## Guide
 
-### 1. Connection & Lifecycle
+`Smb2Pool` is the entry point. It runs a few worker isolates, each with its own connection to the share and its own `Smb2Client`, the synchronous client over libsmb2. Your code calls the pool from any isolate; each call goes to the least busy worker and its result comes back without blocking the caller.
 
-`dart_smb2` offers two layers of abstraction. Pick the one that fits your use case — `Smb2Pool` is the recommended default.
+<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/diagrams/architecture.png" width="100%" alt="Architecture: your code calls Smb2Pool, which sends each request to one of its worker isolates; each worker runs an Smb2Client over a libsmb2 context of its own and holds a connection to the SMB server">
 
-| Layer | Class | Best for |
-| :--- | :--- | :--- |
-| Sync FFI | `Smb2Client` | Scripts, background isolates, maximum control |
-| Worker Pool | `Smb2Pool` | **Default**. Async, multi-worker, auto-reconnect, scope-based file helpers |
+### 1. Connection and lifecycle
 
-#### 1.1 Sync Client
+<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/diagrams/pool_lifecycle.png" width="100%" alt="Pool lifecycle: Smb2Pool.connect, calls, withFile and streamFile, disconnect">
 
-The core layer. All operations are synchronous (they wait for the result before returning), so run it in a background isolate to keep your app responsive. The bundled native library loads automatically on every supported platform — no path configuration required.
-
-```dart
-final client = Smb2Client.open();
-
-client.connect(
-  host: '192.168.1.100',
-  share: 'Files',
-  user: 'user',
-  password: 'pass',
-  domain: 'WORKGROUP',      // optional, defaults to empty
-  timeoutSeconds: 30,       // optional, defaults to 30
-);
-
-// ... use the client ...
-
-client.disconnect();
-```
-
-#### 1.2 Worker Pool
-
-Spawns N isolate workers connected to the same share. Operations are dispatched round-robin. If a worker loses connection, it automatically reconnects and retries the operation.
-
-For single-connection use cases (the old `Smb2Isolate`), set `workers: 1` — you get the same single-connection semantics plus automatic reconnect.
+#### 1.1 Connecting a pool
 
 ```dart
 final pool = await Smb2Pool.connect(
-  host: '192.168.1.100',
-  share: 'Files',
-  user: 'user',
-  password: 'pass',
-  workers: 4,              // default: 4
-  timeoutSeconds: 30,
-);
-
-print('Active workers: ${pool.workerCount}');
-
-final entries = await pool.listDirectory('');
-await pool.disconnect();
-```
-
-#### 1.3 Disconnecting
-
-Always disconnect when done. This releases the native SMB2 context and kills any spawned isolates.
-
-```dart
-client.disconnect();          // Smb2Client (sync)
-await pool.disconnect();      // Smb2Pool
-```
-
-#### 1.4 Security Options
-
-All `connect` methods accept optional security parameters:
-
-```dart
-final pool = await Smb2Pool.connect(
-  host: '192.168.1.100',
-  share: 'Files',
-  user: 'user',
-  password: 'pass',
-  seal: true,                    // encrypt all traffic (SMB 3.0+)
-  signing: true,                 // require message signing
-  version: Smb2Version.any3,     // only accept SMB 3.x
+  host: 'nas.local',
+  share: 'Music',
+  user: 'alice',
+  password: 'secret',
+  workers: 4,
 );
 ```
 
-| Parameter | Default | Description |
+The workers connect in parallel. When one of them cannot, the others are closed and `connect` throws that worker's `Smb2Exception`: `auth` for wrong credentials, `notFound` for a share that does not exist, a network failure for a host that does not answer.
+
+#### 1.2 Connection options
+
+| Argument | Default | Description |
 | :--- | :--- | :--- |
-| `seal` | `false` | Enable SMB3 encryption. All traffic is encrypted on the wire. Requires SMB 3.0 or later — the connection fails if the server only supports SMB 2.x. |
-| `signing` | `false` | Require message signing. Prevents tampering. Works with all SMB versions. The client will always sign if the server requires it, regardless of this setting. |
-| `version` | `Smb2Version.any` | Protocol version to negotiate. Default lets the server pick the highest mutually supported version. Use `any3` to enforce SMB 3.x (required for encryption). |
-
-**Available versions:**
-
-| `Smb2Version` | Protocol | Encryption support |
-| :--- | :--- | :---: |
-| `any` | Best available (default) | Depends on negotiated version |
-| `any2` | Any SMB 2.x | No |
-| `any3` | Any SMB 3.x | Yes |
-| `v202` | SMB 2.0.2 | No |
-| `v210` | SMB 2.1 | No |
-| `v300` | SMB 3.0 | Yes |
-| `v302` | SMB 3.0.2 | Yes |
-| `v311` | SMB 3.1.1 (most secure) | Yes |
-
-> **Note:** When `seal: true` is set, the connection will fail if the server does not support SMB 3.0+. This is by design — silent fallback to unencrypted would be a security violation.
-
----
-
-### 2. Path Format
-
-Paths are **relative to the share root**. Use an empty string `''` for the root directory — not `/`.
+| `user`, `password`, `domain` | none | NTLM credentials. No user means guest |
+| `workers` | 4 | Isolates, each with its own connection |
+| `timeout` | 30 s | Bounds every request, the connection included |
+| `seal` | `false` | Require SMB3 encryption |
+| `signing` | `false` | Require signed messages |
+| `version` | `Smb2Version.any` | The dialect to negotiate, from `v202` to `v311` |
 
 ```dart
-pool.listDirectory('');                          // share root
-pool.listDirectory('Documents');                 // subfolder
-pool.listDirectory('Documents/Projects');        // nested subfolder
-pool.stat('Documents/report.pdf');               // file in subfolder
-pool.writeFile('Documents/notes.txt', data);     // write to subfolder
-pool.mkdir('Documents/NewFolder');               // create in subfolder
-pool.rename('Documents/a.txt', 'Archive/a.txt'); // move between folders
-```
-
----
-
-### 3. Directory Listing
-
-Returns all entries in a directory with full metadata (name, type, size, timestamps) — no additional per-entry round-trips. The `.` and `..` entries are automatically filtered out.
-
-```dart
-final entries = await pool.listDirectory('Documents/Projects');
-
-for (final entry in entries) {
-  final icon = entry.isDirectory ? '📁' : '📄';
-  print('$icon ${entry.name}  ${entry.size} bytes  ${entry.stat.modified}');
-}
-```
-
-Each entry is an `Smb2DirEntry`:
-
-| Property | Type | Description |
-| :--- | :--- | :--- |
-| `name` | `String` | Entry name (not full path) |
-| `stat` | `Smb2Stat` | Full metadata (type, size, modified, created) |
-| `isDirectory` | `bool` | Shorthand for `stat.type == directory` |
-| `isFile` | `bool` | Shorthand for `stat.type == file` |
-| `size` | `int` | Shorthand for `stat.size` |
-
----
-
-### 4. File Metadata
-
-#### 4.1 Stat
-
-Returns file metadata in a single, efficient network round-trip.
-
-```dart
-final info = await pool.stat('Documents/report.pdf');
-
-print('Type: ${info.type}');          // Smb2FileType.file
-print('Size: ${info.size}');          // bytes
-print('Modified: ${info.modified}');  // DateTime
-print('Created: ${info.created}');    // DateTime
-print('Is file: ${info.isFile}');     // bool
-print('Is dir: ${info.isDirectory}'); // bool
-```
-
-#### 4.2 File Size
-
-Shortcut to get just the file size.
-
-```dart
-final size = await pool.fileSize('Documents/report.pdf');
-print('$size bytes');
-```
-
-#### 4.3 Exists
-
-Check whether a file or directory exists without reading it. Returns `false` for non-existent paths; throws on connection or permission errors.
-
-```dart
-// Sync
-if (client.exists('Documents/report.pdf')) {
-  print('File exists');
-}
-
-// Async
-if (await pool.exists('Documents/report.pdf')) {
-  print('File exists');
-}
-```
-
-#### 4.4 Filesystem Info (statvfs)
-
-Query total and free disk space on the share.
-
-```dart
-// Sync
-final vfs = client.statvfs('');
-print('Total: ${vfs.totalSize} bytes');
-print('Free: ${vfs.freeSize} bytes');
-print('Available: ${vfs.availableSize} bytes');
-
-// Async
-final vfs = await pool.statvfs('');
-```
-
-Returns an `Smb2StatVfs` with convenience getters `totalSize`, `freeSize`, and `availableSize` (in bytes).
-
-#### 4.5 Read Symlink
-
-Read the target path of a symbolic link.
-
-```dart
-// Sync
-final target = client.readlink('Documents/shortcut');
-
-// Async
-final target = await pool.readlink('Documents/shortcut');
-```
-
-Throws `Smb2Exception` if the path is not a symlink.
-
-#### 4.6 Connection Health (echo)
-
-Send a keepalive ping to the server. Returns normally if the connection is alive; throws on failure.
-
-```dart
-// Sync
-client.echo();
-
-// Async
-await pool.echo();
-```
-
-Useful for detecting disconnections early during idle periods.
-
----
-
-### 5. Reading Files
-
-#### 5.1 Read Entire File
-
-Loads the entire file into memory.
-
-```dart
-final bytes = await pool.readFile('Documents/report.pdf');
-```
-
-#### 5.2 Partial Read (Byte Range)
-
-Reads N bytes starting at an offset. Ideal for reading partial content without downloading the entire file.
-
-```dart
-// Read first 256 KB of a file
-final header = await pool.readFileRange(
-  'Documents/report.pdf',
-  offset: 0,           // default: 0
-  length: 256 * 1024,
+final secure = await Smb2Pool.connect(
+  host: 'nas.local',
+  share: 'Private',
+  user: 'alice',
+  password: 'secret',
+  seal: true,
+  version: Smb2Version.v311,
+  timeout: const Duration(seconds: 10),
 );
 ```
 
-#### 5.3 Scoped File Access (withFile)
+#### 1.3 Listing the shares of a server
 
-Opens a file for reading, runs your callback with a scoped [`Smb2File`], and **guarantees the handle is closed** on any exit path — including exceptions, early returns, and cancellation.
-
-This is the recommended way to read a file when you need more than a single one-shot read (e.g. parsing metadata that may need ranged fallback reads).
-
-```dart
-final tags = await pool.withFile('Music/song.flac', (file) async {
-  print('File is ${file.size} bytes');
-
-  // Initial header read — typically enough for most tag formats.
-  final header = await file.read(length: 64 * 1024);
-
-  // Some tag formats need bytes beyond the header (e.g. Vorbis comments
-  // stored at arbitrary offsets). Expose `file.read` as a fallback reader
-  // and only fetch more bytes when the parser actually needs them.
-  return parseVorbisComments(
-    header,
-    fileSize: file.size,
-    fallbackRead: (offset, length) => file.read(offset: offset, length: length),
-  );
-});
-```
-
-If you already know the file size from a prior `stat` or directory listing, pass it via `knownSize` to skip the `fstat` round-trip:
-
-```dart
-final stat = await pool.stat('Music/song.flac');
-await pool.withFile(
-  'Music/song.flac',
-  (file) async { /* … */ },
-  knownSize: stat.size,
-);
-```
-
-#### 5.4 Streaming (Chunked)
-
-Reads a file in chunks via a **single persistent handle** (one `Create` + N `Read` + one `Close` on the wire), with optional progress and cancellation callbacks.
-
-**Sync (Smb2Client):**
-
-```dart
-for (final chunk in client.readFileChunked('data/large_file.bin', chunkSize: 1024 * 1024)) {
-  sink.add(chunk);
-}
-```
-
-**Async (Smb2Pool):**
-
-```dart
-bool canceled = false;
-
-await for (final chunk in pool.streamFile(
-  'data/large_file.bin',
-  chunkSize: 1024 * 1024,
-  onProgress: (received, total) {
-    print('${(received / total * 100).toStringAsFixed(1)}% '
-          '($received / $total bytes)');
-  },
-  isCanceled: () => canceled,
-)) {
-  sink.add(chunk);
-}
-```
-
-| Parameter | Default | Description |
-| :--- | :--- | :--- |
-| `chunkSize` | `1 MiB` | Dart-side buffer per iteration. Network-level chunking is automatic (libsmb2 splits into server-negotiated `MaxReadSize` packets, typically 1 MiB). |
-| `onProgress` | — | Called after each chunk with `(received, total)` byte counts. |
-| `isCanceled` | — | Polled after each chunk. Returning `true` aborts the stream with `Smb2Exception`. |
-
-The handle is closed automatically when the stream completes, errors, or the listener cancels its subscription.
-
-#### 5.5 Download to File
-
-One-call convenience that streams an SMB file to a local `File` via [`streamFile`]. Equivalent to streaming and piping to `File.openWrite()`, with `onProgress` and `isCanceled` wired through.
-
-```dart
-import 'dart:io';
-
-await pool.downloadToFile(
-  'Music/song.flac',
-  File('/tmp/song.flac'),
-  onProgress: (received, total) {
-    print('${(received / total * 100).toStringAsFixed(1)}%');
-  },
-  isCanceled: () => userHitCancelButton,
-);
-```
-
-> **Atomicity:** if the download is canceled or errors, the destination file is left as-is (truncated or partially written). For safe replacement of an existing file, write to `dest.part` and rename on success.
-
-#### 5.6 Low-Level File Handles
-
-When you need finer control than `withFile` provides — e.g. a handle that outlives a single scope, or reusing a handle across multiple independent reads — the raw open/close primitives are still available.
-
-> **Prefer `withFile`, `streamFile`, or `downloadToFile`** whenever you can. They are safer (guaranteed cleanup) and more efficient (persistent handle). Reach for the raw API only when those don't fit.
-
-**Sync (Smb2Client):**
-
-```dart
-final handle = client.openFileHandle('data/file.bin');
-
-final start = client.readHandle(handle, offset: 0, length: 4096);
-final mid   = client.readHandle(handle, offset: 100000, length: 4096);
-
-client.closeHandle(handle);
-```
-
-**With size (Smb2Client):**
-
-```dart
-final (handle, size) = client.openFileWithSize('data/file.bin');
-print('File is $size bytes');
-
-// ... read from handle ...
-
-client.closeHandle(handle);
-```
-
-**Pool (auto-reconnect on failure):**
-
-```dart
-final (handle, size) = await pool.openFileWithSize('data/file.bin');
-
-try {
-  final data = await pool.readFromHandle(handle, offset: 0, length: size);
-  // ...
-} finally {
-  await pool.closeHandle(handle);
-}
-```
-
-If the connection drops during a read, the pool automatically reconnects the worker and reopens the file handle before retrying.
-
-> **Safety net:** if an `Smb2PoolHandle` is garbage-collected without `closeHandle` being called, a `closeHandle` command is sent to the worker from the finalizer as a best-effort cleanup. **Do not rely on this** — always close explicitly (or use `withFile`) for deterministic, prompt cleanup.
-
----
-
-### 6. Writing Files
-
-#### 6.1 Write Entire File
-
-Creates or overwrites a file with the given data. The file is truncated before writing.
-
-**Sync (Smb2Client):**
-
-```dart
-client.writeFile('Documents/notes.txt', Uint8List.fromList('Hello!'.codeUnits));
-```
-
-**Async (Smb2Pool):**
-
-```dart
-await pool.writeFile('Documents/notes.txt', Uint8List.fromList('Hello!'.codeUnits));
-```
-
-#### 6.2 Partial Write (Byte Range)
-
-Writes data at a specific offset without truncating the file. Creates the file if it doesn't exist.
-
-**Sync (Smb2Client):**
-
-```dart
-// Overwrite bytes 100–199 of an existing file
-client.writeFileRange('data/file.bin', myBytes, offset: 100);
-```
-
-**Async (Smb2Pool):**
-
-```dart
-await pool.writeFileRange('data/file.bin', myBytes, offset: 100);
-```
-
-#### 6.3 Streaming Write (Chunked)
-
-Writes data from chunks without loading the entire file into RAM. Uses a sync `Iterable` on `Smb2Client` and an async `Stream` on `Smb2Pool`.
-
-**Sync (Smb2Client):**
-
-```dart
-client.writeFileChunked('data/large_file.bin', generateChunks());
-```
-
-**Async (Smb2Pool):**
-
-```dart
-final fileStream = File('local_file.bin').openRead().cast<Uint8List>();
-await pool.streamWrite('data/large_file.bin', fileStream);
-```
-
-#### 6.4 File Handles (Write)
-
-Open a file once for writing and write to it multiple times without reopening. This minimizes round-trips for repeated writes on the same file.
-
-**Sync (Smb2Client):**
-
-```dart
-final handle = client.openFileHandleWrite('data/output.bin');
-
-client.writeHandle(handle, chunk1, offset: 0);
-client.writeHandle(handle, chunk2, offset: chunk1.length);
-
-client.closeHandle(handle);
-```
-
-**Pool (auto-reconnect on failure):**
-
-```dart
-final handle = await pool.openFileWrite('data/output.bin');
-
-await pool.writeToHandle(handle, chunk1, offset: 0);
-await pool.writeToHandle(handle, chunk2, offset: chunk1.length);
-
-await pool.closeHandle(handle);
-```
-
-> **Note:** Write handles use the same `closeHandle()` method as read handles.
-
-#### 6.5 Flush (fsync)
-
-Flush all buffered writes on an open file handle to the server, ensuring data is persisted.
-
-**Sync (Smb2Client):**
-
-```dart
-final handle = client.openFileHandleWrite('data/important.bin');
-client.writeHandle(handle, data);
-client.fsync(handle);  // ensure data is on disk
-client.closeHandle(handle);
-```
-
-**Pool:**
-
-```dart
-final handle = await pool.openFileWrite('data/important.bin');
-await pool.writeToHandle(handle, data);
-await pool.fsyncHandle(handle);
-await pool.closeHandle(handle);
-```
-
-#### 6.6 Truncate Handle (ftruncate)
-
-Truncate an open file handle to a specific size. More efficient than path-based `truncate()` when the file is already open.
-
-**Sync (Smb2Client):**
-
-```dart
-final handle = client.openFileHandleWrite('data/file.bin');
-client.ftruncate(handle, 1024);
-client.closeHandle(handle);
-```
-
-**Pool:**
-
-```dart
-final handle = await pool.openFileWrite('data/file.bin');
-try {
-  await pool.ftruncateHandle(handle, 1024);
-} finally {
-  await pool.closeHandle(handle);
-}
-```
-
----
-
-### 7. File & Directory Management
-
-#### 7.1 Create Directory
-
-```dart
-// Sync
-client.mkdir('Documents/NewFolder');
-
-// Async
-await pool.mkdir('Documents/NewFolder');
-```
-
-#### 7.2 Delete File
-
-```dart
-// Sync
-client.deleteFile('Documents/old_report.pdf');
-
-// Async
-await pool.deleteFile('Documents/old_report.pdf');
-```
-
-#### 7.3 Delete Directory
-
-Removes an empty directory. Throws `Smb2Exception` if the directory is not empty.
-
-```dart
-// Sync
-client.rmdir('Documents/EmptyFolder');
-
-// Async
-await pool.rmdir('Documents/EmptyFolder');
-```
-
-#### 7.4 Rename / Move
-
-Renames or moves a file or directory within the same share.
-
-```dart
-// Sync
-client.rename('Documents/old_name.txt', 'Documents/new_name.txt');
-
-// Async — also works for moving between directories
-await pool.rename('Documents/report.pdf', 'Archive/report.pdf');
-```
-
-#### 7.5 Truncate
-
-Truncates a file to a specific size in bytes.
-
-```dart
-// Sync
-client.truncate('Documents/logfile.txt', 0); // empty the file
-
-// Async
-await pool.truncate('Documents/logfile.txt', 1024); // keep first 1 KB
-```
-
-#### 7.6 Set File Times
-
-Sets the remote last-modified and/or last-accessed time of a file or directory — useful for file manager, backup, and sync apps that preserve local timestamps on upload. Fields left `null` are not changed on the server.
-
-```dart
-// Sync
-client.setFileTimes('Documents/report.pdf', modified: localFile.lastModifiedSync());
-
-// Async
-await pool.setFileTimes(
-  'Documents/report.pdf',
-  modified: DateTime.utc(2020, 5, 17, 10, 30),
-  accessed: DateTime.now(),
-);
-```
-
-> **Note:** call this *after* the write handle on the path is closed — SMB servers refresh the modified time on write/close, which would overwrite an earlier set.
-
----
-
-### 8. Share Enumeration
-
-List all shares available on a server. This does not require an active connection — it connects to IPC$ internally.
-
-**Sync:**
-
-```dart
-final shares = client.listShares(
-  host: '192.168.1.100',
-  user: 'user',
-  password: 'pass',
-);
-
-for (final share in shares) {
-  print('${share.name} — disk: ${share.isDisk}, hidden: ${share.isHidden}');
-}
-```
-
-**Pool (static method, no active connection needed):**
+`listSharesOn` needs no pool: it connects to `IPC$` from a short-lived isolate, lists the shares and disconnects.
 
 ```dart
 final shares = await Smb2Pool.listSharesOn(
-  host: '192.168.1.100',
-  user: 'user',
-  password: 'pass',
+  host: 'nas.local',
+  user: 'alice',
+  password: 'secret',
 );
-```
-
-Each share is an `Smb2ShareInfo` with:
-
-| Property | Type | Description |
-| :--- | :--- | :--- |
-| `name` | `String` | Share name |
-| `type` | `int` | Raw share type |
-| `isDisk` | `bool` | True if disk/folder share |
-| `isHidden` | `bool` | True if hidden share |
-
----
-
-### 9. Error Handling
-
-#### 9.1 Smb2Exception
-
-All errors throw `Smb2Exception` with a message, an optional POSIX errno, and a semantic error type.
-
-```dart
-try {
-  await pool.readFile('nonexistent/path.txt');
-} on Smb2Exception catch (e) {
-  print(e.message);              // Human-readable error from libsmb2
-  print(e.errorCode);            // POSIX errno (nullable)
-  print(e.type);                 // Smb2ErrorType
-  print(e.isConnectionError);    // true for retriable errors
+for (final share in shares.where((s) => s.isDisk && !s.isHidden)) {
+  print('${share.name}  ${share.remark}');
 }
 ```
 
-#### 9.2 Error Types
-
-`Smb2ErrorType` maps native errno values to semantic categories:
-
-| Type | Meaning | errno examples |
-| :--- | :--- | :--- |
-| `connection` | Network disconnected, pipe broken | ENETRESET, ECONNRESET, ECONNABORTED, EPIPE, ENOTCONN, ENETDOWN, ENETUNREACH, EHOSTDOWN, EHOSTUNREACH |
-| `timeout` | Operation timed out | ETIMEDOUT |
-| `auth` | Authentication failed | ECONNREFUSED |
-| `fileNotFound` | File or path not found | ENOENT |
-| `accessDenied` | Permission denied | EACCES |
-| `notADirectory` | Path is not a directory | ENOTDIR |
-| `alreadyExists` | Target already exists | EEXIST |
-| `diskFull` | No space left on device | ENOSPC |
-| `io` | I/O error | EIO |
-| `invalidParam` | Invalid argument | EINVAL |
-| `unknown` | Unmapped error code | — |
-
-Use `isConnectionError` to decide whether to retry:
+#### 1.4 Disconnecting
 
 ```dart
-on Smb2Exception catch (e) {
-  if (e.isConnectionError) {
-    // Safe to retry — connection or timeout issue
+await pool.disconnect();
+```
+
+Each worker finishes the requests it has already been sent, closes its open files and logs off, and its isolate ends; a worker that does not finish within 5 seconds is killed, and its requests fail with a `connection` error. A reconnect in progress is aborted. Calls waiting for a reconnect, and later calls, fail with a `state` error. Nothing outlives the call. A read the killed worker was in the middle of loses its buffer, up to the length it asked for.
+
+### 2. Paths
+
+Paths are relative to the share: `''` is its root, `Album/cover.jpg` a file in it. A leading slash is dropped and backslashes become slashes, so `/Album\cover.jpg` names the same file. A path with a NUL character fails with `invalidParam` before it reaches the server.
+
+### 3. Directories and metadata
+
+#### 3.1 Listing a directory
+
+```dart
+final entries = await pool.listDirectory('Album');
+for (final e in entries) {
+  print('${e.name} ${e.stat.modified} ${e.isFile ? e.size : '-'}');
+}
+```
+
+The listing carries each entry's metadata, so no request per entry is needed. `.` and `..` are left out. `Smb2Stat.isHidden` reports the server's hidden attribute, as the server sets it: Samba sets it on dot files by default (`hide dot files`), and the library adds no rule of its own.
+
+#### 3.2 Stat, size and existence
+
+```dart
+final stat = await pool.stat('Album/01 - Intro.flac');
+print('${stat.size} bytes, modified ${stat.modified}');
+
+final size = await pool.fileSize('Album/01 - Intro.flac');
+final there = await pool.exists('Album/booklet.pdf');
+```
+
+`Smb2Stat` holds the type, the size, the modified, created, accessed and changed times (UTC, to the microsecond) and the file attributes. `exists` returns `false` only for a missing path; any other failure throws.
+
+#### 3.3 Space on the share
+
+```dart
+final vfs = await pool.statvfs('');
+print('${vfs.availableSize} of ${vfs.totalSize} bytes free');
+```
+
+### 4. Reading files
+
+#### 4.1 Whole files and ranges
+
+```dart
+final cover = await pool.readFile('Album/cover.jpg');
+final header = await pool.readFileRange(
+  'Album/01 - Intro.flac',
+  length: 64 * 1024,
+);
+```
+
+A range returns fewer bytes than asked only when the file ends first. Reads larger than what the server accepts in one request are split for you.
+
+#### 4.2 A file open for several reads
+
+`withFile` opens a file once, hands it to your callback and closes it on every exit path.
+
+```dart
+final tag = await pool.withFile('Album/01 - Intro.flac', (file) async {
+  final head = await file.read(length: 10);
+  final tail = await file.read(offset: file.size - 128, length: 128);
+  return (head, tail);
+});
+```
+
+Pass `knownSize` when a listing already gave the size: the open then skips the size request.
+
+#### 4.3 Handles
+
+For files that stay open across calls, open a handle and close it yourself.
+
+```dart
+final (handle, size) = await pool.openFileWithSize('Album/01 - Intro.flac');
+try {
+  final first = await pool.readFromHandle(handle, length: 4096);
+  final last = await pool.readFromHandle(handle, offset: size - 4096, length: 4096);
+} finally {
+  await pool.closeHandle(handle);
+}
+```
+
+A handle stays on the worker that opened it. If that worker reconnects, the handle is opened again before its next call. Closing a handle twice does nothing; any other use of a closed handle throws a `state` error. A handle dropped without being closed is closed when it is garbage collected.
+
+### 5. Streaming and downloads
+
+<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/diagrams/streaming.png" width="100%" alt="Streaming: the worker reads the next chunk while your isolate writes the current one to a part file, which is renamed to the destination at the end">
+
+#### 5.1 Streaming a file
+
+```dart
+final stream = pool.streamFile(
+  'Album/01 - Intro.flac',
+  onProgress: (received, total) => print('$received / $total'),
+);
+await for (final chunk in stream) {
+  print('${chunk.length} bytes');
+}
+```
+
+The stream keeps one file handle open and reads the next chunk while you handle the current one. It waits while its listener is paused, so the stream holds at most two chunks (4 MiB each by default, see `chunkSize`); a chunk you are done with is freed when it is garbage collected, so many streams at once can use a multiple of that for a while. Cancelling the subscription, or the token, closes the handle and stops the read in flight; the subscription's future completes without error.
+
+#### 5.2 Downloading to disk
+
+```dart
+final written = await pool.downloadToFile(
+  'Album/01 - Intro.flac',
+  '/storage/music/01 - Intro.flac',
+  onProgress: (received, total) => print('${received * 100 ~/ total}%'),
+);
+```
+
+The data goes to a temporary file next to the destination as it arrives, at the pace the disk takes it, and is renamed to the destination only once complete. A failure or a cancellation removes the temporary file and leaves the destination as it was.
+
+### 6. Writing files
+
+#### 6.1 Whole files and ranges
+
+```dart
+await pool.writeFile('Notes/todo.txt', utf8.encode('buy milk\n'));
+await pool.writeFileRange('Notes/todo.txt', utf8.encode('eggs\n'), offset: 9);
+```
+
+`writeFile` replaces the file, creating it if needed; `writeFileRange` writes at an offset and leaves the rest of the file as it is. The data is copied once into a native buffer in the calling isolate, at memory speed (about 9 ms for 64 MiB); for large writes from the UI isolate, prefer `streamWrite` with chunks of a few MiB.
+
+#### 6.2 Streaming a write
+
+```dart
+final upload = File('/storage/music/01 - Intro.flac')
+    .openRead()
+    .map(Uint8List.fromList);
+await pool.streamWrite('Backup/01 - Intro.flac', upload);
+```
+
+The chunks go through one handle, each at its own offset, so only one is in memory at a time and a reconnect repeats just the chunk that failed.
+
+#### 6.3 Write handles
+
+```dart
+final out = await pool.openFileWrite('Backup/log.bin', truncate: true);
+try {
+  await pool.writeToHandle(out, Uint8List.fromList([1, 2, 3]));
+  await pool.writeToHandle(out, Uint8List.fromList([4]), offset: 3);
+  await pool.fsyncHandle(out);
+} finally {
+  await pool.closeHandle(out);
+}
+```
+
+`ftruncateHandle` cuts or extends the file of a handle.
+
+### 7. Managing files and directories
+
+```dart
+await pool.mkdir('Backup/2026');
+await pool.rename('Backup/log.bin', 'Backup/2026/log.bin');
+await pool.truncate('Backup/2026/log.bin', 2);
+await pool.setFileTimes(
+  'Backup/2026/log.bin',
+  modified: DateTime.utc(2026, 1, 1),
+);
+await pool.deleteFile('Backup/2026/log.bin');
+await pool.rmdir('Backup/2026');
+```
+
+`rmdir` fails with `notEmpty` while the directory has entries, and with `notADirectory` on a file; `deleteFile` fails with `isADirectory` on a directory and on a link to one: remove those with `rmdir` (Windows junctions and directory symlinks), though Samba cannot remove a directory symlink over SMB2 at all. Set times after the file's write handles are closed: the server refreshes the modified time on write and close.
+
+### 8. Cancellation
+
+Every call on a connected pool takes an `Smb2CancelToken`, except `closeHandle`, `disconnect` and the deprecated `listShares`. A cancelled call throws an `Smb2Exception` of type `cancelled` at once, also while it waits for a reconnect; a request the worker already sent finishes on the server and its result is dropped, and a file it opened is closed.
+
+```dart
+final token = Smb2CancelToken();
+final download = pool.downloadToFile(
+  'Album/01 - Intro.flac',
+  '/tmp/intro.flac',
+  cancelToken: token,
+);
+
+// The user pressed stop:
+token.cancel();
+
+try {
+  await download;
+} on Smb2Exception catch (e) {
+  if (!e.isCancelled) rethrow;
+}
+```
+
+One token cancels any number of calls, once. Make a new token for the next page, folder or download.
+
+### 9. Errors and reconnects
+
+#### 9.1 Error types
+
+Every failure is an `Smb2Exception`. Its `type` comes from the NT status the server answered with, from the errno libsmb2 reported, or from a transport failure, and reads the same on every platform.
+
+| Type | Meaning |
+| :--- | :--- |
+| `connection` | The connection failed or was lost, the host name does not resolve, or the server dropped the session or a handle |
+| `timeout` | The server did not answer within the timeout |
+| `auth` | Wrong credentials, or the account cannot log on. A server that maps unknown users to guest refuses them at the share with `accessDenied` instead |
+| `notFound` | The path or the share does not exist |
+| `accessDenied` | No permission for the operation |
+| `notADirectory`, `isADirectory` | A file where a directory was expected, or the opposite |
+| `alreadyExists`, `notEmpty` | The target exists; the directory has entries |
+| `inUse` | Another client holds the file open or locked, or the server is out of resources for the moment |
+| `diskFull` | Out of space or over quota |
+| `io`, `invalidParam`, `notSupported` | Read/write failure, bad argument, unsupported operation |
+| `state` | Closed pool, closed handle, client not connected |
+| `cancelled` | Cancelled through an `Smb2CancelToken` |
+| `unknown` | Anything else |
+
+The predicates group them the way dart_plex and dart_jellyfin do:
+
+```dart
+try {
+  await pool.listDirectory('Album');
+} on Smb2Exception catch (e) {
+  if (e.isAuthError) {
+    print('ask for the password again');
+  } else if (e.isNotFound) {
+    print('gone');
+  } else if (e.isTransient) {
+    print('try again later');
+  } else if (!e.isCancelled) {
+    print('${e.type.name}: ${e.message}');
   }
 }
 ```
 
-> **Note:** `Smb2Pool` handles reconnection automatically. You only need manual retry logic with `Smb2Client`.
+`isNetworkFailure` covers `connection` and `timeout`: the connection, the session or a handle was lost, or the server did not answer, and a reconnect may recover. `isTransient` adds `inUse`. `ntStatus` and `errno` keep the raw codes: `ntStatus` only when the server answered this call with it (libsmb2 keeps the status of earlier calls around), and `errno` for an open or a listing comes from that status. Both are null for a transport failure.
 
----
+#### 9.2 Reconnects
 
-## Types Reference
+<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/diagrams/reconnect.png" width="100%" alt="A reconnect: the worker loses the connection, the pool spawns and connects a new worker and sends the call again, and the result reaches your code">
 
-### Smb2Stat
+When a call fails with a network failure, the pool replaces the worker with a new connection — once, however many calls saw it fail — and repeats the call when repeating cannot change the outcome: reads, listings, metadata, writes at an offset, whole-file writes, truncates and timestamps. `mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated, because the server may have done them before the connection dropped; their error reaches you and the next call uses the new connection. Open handles are reopened on the new worker before their next call. When the new connection cannot be made, the call is repeated on another worker, and the slot tries again in the background, after 1, 2, 4 and up to 32 seconds, when the network failed. When the server refused the connection (credentials, the share), the pool keeps that answer for 5 minutes: calls that need a new connection get it at once without asking the server, and one login is tried per interval, however many workers and calls.
 
-| Property | Type | Description |
-| :--- | :--- | :--- |
-| `type` | `Smb2FileType` | `file`, `directory`, or `link` |
-| `size` | `int` | Size in bytes |
-| `modified` | `DateTime` | Last modification time |
-| `created` | `DateTime` | Creation time |
-| `isFile` | `bool` | `true` if regular file |
-| `isDirectory` | `bool` | `true` if directory |
+### 10. The synchronous client
 
-### Smb2DirEntry
+`Smb2Client` is the client each worker runs. Every call blocks until the server answers, so use it from an isolate of your own.
 
-| Property | Type | Description |
-| :--- | :--- | :--- |
-| `name` | `String` | Entry name (not full path) |
-| `stat` | `Smb2Stat` | Full metadata |
-| `isDirectory` | `bool` | Shorthand |
-| `isFile` | `bool` | Shorthand |
-| `size` | `int` | Shorthand for `stat.size` |
+```dart
+final summary = await Isolate.run(() {
+  final client = Smb2Client()
+    ..connect(host: 'nas.local', share: 'Music', user: 'alice', password: 'secret');
+  try {
+    final entries = client.listDirectory('');
+    return '${entries.length} entries, ${client.maxReadSize} B per read';
+  } finally {
+    client.disconnect();
+  }
+});
+```
 
-### Smb2StatVfs
+It has the pool's methods, without the `Future`s and the cancel tokens: `openFile`, `readFromHandle`, `writeToHandle`, `closeHandle` and so on, plus `readFileChunked` and `writeFileChunked` over iterables. `Smb2Client.listShares` is static and needs no connection. A client dropped without `disconnect()` frees its connection when it is garbage collected, without a logoff.
 
-| Property | Type | Description |
-| :--- | :--- | :--- |
-| `blockSize` | `int` | Fundamental block size |
-| `fragmentSize` | `int` | Fragment size |
-| `totalBlocks` | `int` | Total data blocks |
-| `freeBlocks` | `int` | Free blocks |
-| `availableBlocks` | `int` | Available blocks for non-root |
-| `maxNameLength` | `int` | Max filename length |
-| `totalSize` | `int` | Total size in bytes (computed) |
-| `freeSize` | `int` | Free space in bytes (computed) |
-| `availableSize` | `int` | Available space in bytes (computed) |
+### 11. The native library
 
-### Smb2ShareInfo
+<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/diagrams/hook.png" width="100%" alt="The build hook takes the libsmb2 release binary for the target, checked against its SHA-256, or a local build from hooks.user_defines as it is, and bundles it as libdart_smb2">
 
-| Property | Type | Description |
-| :--- | :--- | :--- |
-| `name` | `String` | Share name |
-| `type` | `int` | Raw share type |
-| `isDisk` | `bool` | True if disk/folder share |
-| `isHidden` | `bool` | True if hidden share |
-
-### Smb2Version
-
-| Value | Protocol |
-| :--- | :--- |
-| `any` | Best available (default) |
-| `any2` | Any SMB 2.x |
-| `any3` | Any SMB 3.x |
-| `v202` | SMB 2.0.2 |
-| `v210` | SMB 2.1 |
-| `v300` | SMB 3.0 |
-| `v302` | SMB 3.0.2 |
-| `v311` | SMB 3.1.1 |
-
-### Smb2FileType
-
-| Value | Description |
-| :--- | :--- |
-| `file` | Regular file |
-| `directory` | Directory |
-| `link` | Symbolic link |
-
-### Smb2ErrorType
-
-| Value | Description |
-| :--- | :--- |
-| `connection` | Network disconnected |
-| `timeout` | Operation timed out |
-| `auth` | Authentication failed |
-| `fileNotFound` | File or path not found |
-| `accessDenied` | Permission denied |
-| `notADirectory` | Path is not a directory |
-| `alreadyExists` | Target already exists |
-| `diskFull` | No space left |
-| `io` | I/O error |
-| `invalidParam` | Invalid argument |
-| `unknown` | Unmapped error |
+The binaries come from [libsmb2-scripts](https://github.com/ales-drnz/libsmb2-scripts), which builds the upstream [libsmb2](https://github.com/sahlberg/libsmb2) commit it pins with a set of patches, on GitHub's runners, and publishes them with a `manifest.json` on this repository's `libsmb2-rN` releases. libsmb2 is licensed under the LGPL-2.1 or later: each release names the libsmb2-scripts commit it was built from, the corresponding source of its binaries, and carries the license texts (`COPYING`, `LICENCE-LGPL-2.1.txt`). An app that ships dart_smb2 ships libsmb2 too, so it should include those texts and point to that source (the package's [NOTICE](NOTICE) says so), and the `user_defines` override above lets anyone swap in another build.
 
 ---
 
@@ -1044,7 +573,9 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 
 ## Project background
 
-All the native bindings, FFI wrappers, and isolate logic were implemented through the use of Claude Code.
+I wrote the bindings, the client, the pool and the build hook with Claude Code. The native library is [libsmb2](https://github.com/sahlberg/libsmb2) by Ronnie Sahlberg.
+
+Samba is a trademark of the Software Freedom Conservancy, and Windows a trademark of Microsoft. dart_smb2 is not affiliated with either.
 
 ---
 

@@ -1,0 +1,36 @@
+# Static analysis configuration.
+#
+# Builds on flutter_lints with a stricter, curated ruleset: stricter type
+# checking plus const correctness, trailing commas, and awaited futures.
+
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+  exclude:
+    - docs/**
+    - build/**
+    - android/**
+    - ios/**
+    - windows/**
+    - macos/**
+    - linux/**
+
+linter:
+  rules:
+    - prefer_const_constructors
+    - prefer_const_constructors_in_immutables
+    - prefer_const_declarations
+    - prefer_const_literals_to_create_immutables
+    - prefer_final_locals
+    - prefer_final_in_for_each
+    - unawaited_futures
+    - require_trailing_commas
+    - directives_ordering
+    - sort_pub_dependencies
+    - prefer_single_quotes
+    - use_super_parameters
+    - avoid_redundant_argument_values
+    - unnecessary_parenthesis
