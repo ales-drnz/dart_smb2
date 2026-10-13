@@ -34,7 +34,7 @@ A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the change
 - A cancelled call returns at once, also while it waits for a reconnect or a slot.
 - `disconnect()` aborts a reconnect in progress instead of waiting for its connect.
 - A stream, a download, `withFile()` or `streamWrite()` that fails or is cancelled closes its handle without waiting, so it never waits behind a read stuck on the network; one that completes waits for the close, so the file can be deleted or renamed next.
-- A worker that dies without a call failing on it, or whose cancelled request hits a network failure, is reconnected at once; a slot that cannot reconnect retries after a network failure from 1 to 32 seconds apart and after a refusal every 5 minutes, and a call that finds no live worker reports why the reconnect failed.
+- A worker that dies without a call failing on it, or whose cancelled request hits a network failure, is reconnected at once; a slot that cannot reconnect retries after a network failure from 1 to 32 seconds apart; a refusal is kept for 5 minutes, with one login attempt per interval for the whole pool; and a call that finds no live worker reports why the reconnect failed.
 - Reads reach the calling isolate in native buffers, without a copy.
 - `streamWrite()` repeats a chunk after a reconnect.
 - Paths drop leading slashes and take backslashes.

@@ -540,6 +540,25 @@ void main() {
       expect(await pool.exists(path), isFalse);
     });
 
+    test('a stream left early does not hold up its directory', () async {
+      final dir = scratch.path('left_early_dir');
+      await pool.mkdir(dir);
+      await pool.writeFile('$dir/f.bin', Uint8List(16 << 20));
+      for (var i = 0; i < 10; i++) {
+        await for (final _ in pool.streamFile('$dir/f.bin')) {
+          break;
+        }
+        await pool.rename(dir, '$dir.moved');
+        // A path written another way names the same file.
+        await for (final _ in pool.streamFile('$dir.moved//f.bin')) {
+          break;
+        }
+        await pool.rename('/$dir.moved/', dir);
+      }
+      await pool.deleteFile('$dir/f.bin');
+      await pool.rmdir(dir);
+    });
+
     test('a file closed by closeHandle, a stream or withFile can go', () async {
       for (var i = 0; i < 20; i++) {
         final path = scratch.path('close_then_delete_$i.bin');
@@ -582,6 +601,34 @@ void main() {
         expect((await pool.stat(seedFile)).size, seedSize);
         Worker.debugConnectFailure = null;
         await eventually(() => poolWorkers(pool).every((w) => w.isUsable));
+      } finally {
+        await pool.disconnect();
+      }
+    });
+
+    test('calls get a refusal at once, without a login each', () async {
+      final pool = await connectPool(workers: 1);
+      try {
+        Smb2Pool.debugRefusedRetry = const Duration(seconds: 3);
+        Worker.debugConnectFailure = const Smb2Exception(
+          'Refused for the test',
+          type: Smb2ErrorType.auth,
+        );
+        final spawns = Worker.debugSpawns;
+        poolWorkers(pool).single.crash();
+        await eventually(() => Worker.debugSpawns == spawns + 1);
+        for (var i = 0; i < 10; i++) {
+          await expectLater(
+            pool.stat(seedFile),
+            throwsType(Smb2ErrorType.auth),
+          );
+        }
+        expect(Worker.debugSpawns, spawns + 1);
+        // The interval passes: one more login, which connects.
+        Worker.debugConnectFailure = null;
+        await eventually(() => poolWorkers(pool).single.isUsable);
+        expect(Worker.debugSpawns, spawns + 2);
+        expect((await pool.stat(seedFile)).size, seedSize);
       } finally {
         await pool.disconnect();
       }

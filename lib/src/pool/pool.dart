@@ -54,6 +54,12 @@ final class Smb2Pool {
   /// conflict with the open file waits for them (see [_mutates]).
   final Map<String, Future<void>> _pendingCloses = {};
 
+  /// The server's refusal of the last reconnect (credentials, the share),
+  /// while it stands: reconnects fail with it at once, without asking the
+  /// server, until [_refusalRetry] tries again.
+  Smb2Exception? _refusal;
+  Timer? _refusalRetry;
+
   /// Cancelled on [disconnect], to abort the spawns of reconnects.
   final Smb2CancelToken _closing = Smb2CancelToken();
   int _next = 0;
@@ -75,8 +81,10 @@ final class Smb2Pool {
   /// dropped — and their failure reaches the caller.
   ///
   /// When a reconnect fails, the slot's calls go to the other workers, and
-  /// the slot tries again in the background: from 1 to 32 seconds apart
-  /// after a network failure, every 5 minutes after a refusal.
+  /// the slot tries again in the background, from 1 to 32 seconds apart,
+  /// after a network failure. A refusal (credentials, the share) is kept for
+  /// five minutes: reconnects fail with it at once, and one login is tried
+  /// per interval for the whole pool.
   ///
   /// Throws the first worker's [Smb2Exception] when one cannot connect
   /// (the others are closed): [Smb2ErrorType.auth] for bad credentials,
@@ -487,6 +495,14 @@ final class Smb2Pool {
     await done;
   }
 
+  /// The closes in flight for [key], and with [below] for the paths in the
+  /// directory [key] too.
+  Iterable<Future<void>> _closesOf(String key, {required bool below}) sync* {
+    for (final MapEntry(key: path, value: close) in _pendingCloses.entries) {
+      if (path == key || (below && path.startsWith('$key/'))) yield close;
+    }
+  }
+
   /// Closes [handle] without waiting: for a call that failed or was
   /// cancelled, whose close may queue behind a read stuck on the network. A
   /// later delete, rename or write of the same path waits for the close.
@@ -772,6 +788,8 @@ final class Smb2Pool {
       slot.retry?.cancel();
       slot.retry = null;
     }
+    _refusalRetry?.cancel();
+    _refusalRetry = null;
     // Wait for the reconnects so nothing outlives this call.
     await Future.wait(_reconnects.toList());
     await Future.wait(_slots.map((s) => s.worker.close()));
@@ -864,9 +882,12 @@ final class Smb2Pool {
     _ensureOpen(path);
     cancelToken?.throwIfCancelled(path: path);
     if (_mutates.contains(op) && _pendingCloses.isNotEmpty) {
+      // A rename or rmdir of a directory also waits for the files in it:
+      // the server refuses one while a file below is open.
+      final below = op == Op.rename || op == Op.rmdir;
       final closes = [
         for (final p in [path, if (op == Op.rename) (args as List)[1]])
-          if (p is String) ?_pendingCloses[_pathKey(p)],
+          if (p is String) ..._closesOf(_pathKey(p), below: below),
       ];
       if (closes.isNotEmpty) {
         await _orCancel(Future.wait(closes), cancelToken, path);
@@ -876,6 +897,9 @@ final class Smb2Pool {
         args is List<Object?> ? args : (args as List<Object?> Function())();
     Slot slot = _pickNow() ?? await _orCancel(_pickLater(), cancelToken, path);
     final worker = slot.worker;
+    // A worker already dead never sends the request: repeating it is safe
+    // whatever the call.
+    final repeatable = idempotent || !worker.isUsable;
     try {
       return result(
         slot,
@@ -888,7 +912,7 @@ final class Smb2Pool {
         fresh = await _orCancel(_reconnect(slot, worker), cancelToken, path);
       } on Smb2Exception catch (reconnect) {
         if (reconnect.isCancelled || _closed) rethrow;
-        if (!idempotent) throw e;
+        if (!repeatable) throw e;
         // The slot cannot reconnect now: repeat on another live worker, or
         // report why the reconnect failed.
         final other = _pickNow();
@@ -896,7 +920,7 @@ final class Smb2Pool {
         slot = other;
         fresh = other.worker;
       }
-      if (!idempotent) rethrow;
+      if (!repeatable) rethrow;
       cancelToken?.throwIfCancelled(path: path);
       return result(
         slot,
@@ -997,15 +1021,20 @@ final class Smb2Pool {
     if (!identical(slot.worker, failed)) return Future.value(slot.worker);
     final existing = slot.reconnecting;
     if (existing != null) return existing;
+    final refusal = _refusal;
+    if (refusal != null) return Future.error(refusal);
     slot.retry?.cancel();
     slot.retry = null;
     final future = slot.reconnecting = _replace(slot, failed);
     final done = future.then<void>(
       (_) => slot.failures = 0,
-      onError: (Object e) => _scheduleRetry(
-        slot,
-        network: e is Smb2Exception && e.isNetworkFailure,
-      ),
+      onError: (Object e) {
+        if (e is Smb2Exception && !e.isNetworkFailure) {
+          _refuse(e);
+        } else {
+          _scheduleRetry(slot);
+        }
+      },
     );
     _reconnects.add(done);
     done.whenComplete(() {
@@ -1029,19 +1058,43 @@ final class Smb2Pool {
     return worker;
   }
 
-  /// Tries [slot]'s reconnect again in the background until it succeeds or
-  /// the pool closes: after 1, 2, 4, ... up to 32 seconds when the network
-  /// failed, and every 5 minutes when the server refused (credentials, the
-  /// share), so an account is not locked out by retries.
-  void _scheduleRetry(Slot slot, {required bool network}) {
+  /// Tries [slot]'s reconnect again in the background after a network
+  /// failure, 1, 2, 4, ... up to 32 seconds apart, until it succeeds or the
+  /// pool closes.
+  void _scheduleRetry(Slot slot) {
     if (_closed) return;
-    final delay = network
-        ? Duration(seconds: 1 << min(slot.failures++, 5))
-        : debugRefusedRetry;
+    final delay = Duration(seconds: 1 << min(slot.failures++, 5));
     slot.retry = Timer(delay, () {
       slot.retry = null;
       if (_closed || slot.worker.isUsable || slot.reconnecting != null) return;
       _reconnect(slot, slot.worker).ignore();
+    });
+  }
+
+  /// Holds [refusal] for every reconnect of the pool, and tries one slot
+  /// again after [debugRefusedRetry]; when it connects, the other dead slots
+  /// follow. One login attempt per interval, however many workers and
+  /// calls, so retries do not lock an account out.
+  void _refuse(Smb2Exception refusal) {
+    _refusal = refusal;
+    if (_closed || _refusalRetry != null) return;
+    _refusalRetry = Timer(debugRefusedRetry, () async {
+      _refusalRetry = null;
+      _refusal = null;
+      if (_closed) return;
+      final dead = [
+        for (final s in _slots)
+          if (!s.worker.isUsable && s.reconnecting == null) s,
+      ];
+      if (dead.isEmpty) return;
+      try {
+        await _reconnect(dead.first, dead.first.worker);
+      } on Object {
+        return; // Refused again (a new timer is set) or the network failed.
+      }
+      for (final s in dead.skip(1)) {
+        _reconnect(s, s.worker).ignore();
+      }
     });
   }
 }
@@ -1092,8 +1145,15 @@ const _mutates = {
 
 /// [path] as the server compares it: leading slashes dropped, backslashes
 /// as slashes, case folded.
-String _pathKey(String path) =>
-    path.replaceAll(r'\', '/').replaceFirst(RegExp('^/+'), '').toLowerCase();
+String _pathKey(String path) => path
+    .replaceAll(r'\', '/')
+    .replaceAll(_slashes, '/')
+    .replaceFirst(_edgeSlashes, '')
+    .replaceFirst(_edgeSlashes, '')
+    .toLowerCase();
+
+final _slashes = RegExp('/{2,}');
+final _edgeSlashes = RegExp(r'^/|/$');
 
 void _noop() {}
 
