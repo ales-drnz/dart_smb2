@@ -20,7 +20,9 @@
 // such as libsmb2-scripts' release_builds/, and each target takes its own.
 // A single file is bundled for every target, so it only suits a build for
 // one target and architecture. Local files are bundled as they are, without
-// a checksum.
+// a checksum, and must be builds of the pinned libsmb2 release or of one
+// with the same ABI (smb2_stat_64's layout, the context-list lock): an
+// older libsmb2 loads, but reads stat fields wrong.
 
 import 'dart:io';
 
@@ -29,6 +31,9 @@ import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 
 const _release = 'libsmb2-r9';
+
+/// The Android API level the release's libraries are built for.
+const _androidMinApi = 24;
 const _baseUrl =
     'https://github.com/ales-drnz/dart_smb2/releases/download/$_release';
 
@@ -66,6 +71,12 @@ void main(List<String> args) async {
     if (local != null &&
         !FileSystemEntity.isDirectorySync(local.toFilePath())) {
       // A single file is the finished library, bundled for every target.
+      if (!File.fromUri(local).existsSync()) {
+        throw StateError(
+          'dart_smb2: hooks.user_defines.dart_smb2.libsmb2 points at '
+          '${local.toFilePath()}, which does not exist',
+        );
+      }
       output.dependencies.add(local);
       await File.fromUri(local).copy(out.path);
     } else {
@@ -134,6 +145,12 @@ class _Target {
         }}.so',
         'libdart_smb2.so',
       ),
+      OS.android when code.android.targetNdkApi < _androidMinApi =>
+        throw UnsupportedError(
+          'dart_smb2: libsmb2 is built for Android API $_androidMinApi, the '
+          'app targets ${code.android.targetNdkApi}: raise minSdk to '
+          '$_androidMinApi',
+        ),
       OS.android => _Target(
         'libsmb2_android-${switch (arch) {
           Architecture.arm64 => 'arm64-v8a',
@@ -175,8 +192,8 @@ Future<File> _localAsset(Uri dir, String asset) async {
   final file = File.fromUri(base.resolve(asset));
   if (!file.existsSync()) {
     throw StateError(
-      'dart_smb2: the libsmb2 user define points at ${dir.toFilePath()}, '
-      'which has no $asset',
+      'dart_smb2: hooks.user_defines.dart_smb2.libsmb2 points at '
+      '${dir.toFilePath()}, which has no $asset',
     );
   }
   return file;
@@ -197,7 +214,7 @@ Future<File> _fetch(String asset, Uri cacheDir) async {
   // architectures at once, and both would download the same asset.
   final partial = File('${cached.path}.$pid.part');
   try {
-    await _download('$_baseUrl/$asset', partial);
+    await _download('$_baseUrl/$asset', partial, asset);
     if (!await _matches(partial, expected)) {
       throw StateError('dart_smb2: SHA-256 mismatch for $asset from $_baseUrl');
     }
@@ -259,17 +276,38 @@ Future<bool> _matches(File file, String sha256Hex) async {
   return digest.toString() == sha256Hex;
 }
 
-Future<void> _download(String url, File target) async {
-  final client = HttpClient()..findProxy = HttpClient.findProxyFromEnvironment;
-  try {
-    final response = await (await client.getUrl(Uri.parse(url))).close();
-    if (response.statusCode != HttpStatus.ok) {
-      throw HttpException('dart_smb2: HTTP ${response.statusCode} for $url');
+/// Downloads [url] to [target], in up to three attempts. A connection gets
+/// 30 seconds to open and the transfer 60 seconds without data before an
+/// attempt is given up, so a network that answers nothing fails the build
+/// instead of hanging it.
+Future<void> _download(String url, File target, String asset) async {
+  Object? lastError;
+  for (var attempt = 1; attempt <= 3; attempt++) {
+    final client = HttpClient()
+      ..findProxy = HttpClient.findProxyFromEnvironment
+      ..connectionTimeout = const Duration(seconds: 30);
+    try {
+      final response = await (await client.getUrl(
+        Uri.parse(url),
+      )).close().timeout(const Duration(seconds: 60));
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('HTTP ${response.statusCode} for $url');
+      }
+      await response
+          .timeout(const Duration(seconds: 60))
+          .pipe(target.openWrite());
+      return;
+    } on Exception catch (e) {
+      lastError = e;
+    } finally {
+      client.close(force: true);
     }
-    await response.pipe(target.openWrite());
-  } finally {
-    client.close();
   }
+  throw StateError(
+    'dart_smb2: cannot download $asset from $url ($lastError). To build '
+    'offline, point hooks.user_defines.dart_smb2.libsmb2 at a local copy '
+    '(see the package README).',
+  );
 }
 
 Future<String> _run(String executable, List<String> arguments) async {
