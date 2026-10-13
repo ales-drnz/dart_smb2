@@ -34,6 +34,7 @@ const _leaf = {
   'smb2_get_error',
   'smb2_get_nterror',
   'nterror_to_errno',
+  'nterror_to_str',
   'smb2_closedir',
   'smb2_free_data',
 };

@@ -609,7 +609,14 @@ final class Smb2Client implements Finalizable {
     final fh = _live(handle);
     _checkRange(offset, length, handle.path);
     if (length == 0) return (0, 0);
-    final buf = malloc<Uint8>(length);
+    final Pointer<Uint8> buf;
+    try {
+      buf = malloc<Uint8>(length);
+      // package:ffi reports a failed allocation as an ArgumentError.
+      // ignore: avoid_catching_errors
+    } on ArgumentError {
+      throw _invalid('Cannot allocate $length bytes for the read', handle.path);
+    }
     try {
       // The count is a uint32 and the result an int: ask for at most one
       // MaxReadSize per call, which libsmb2 would cap the request at anyway.
@@ -767,35 +774,15 @@ void _connectContext(
       (user ?? '').toNativeUtf8(allocator: arena).cast(),
     );
     if (rc < 0) {
-      final e = _error(ctx, 'Cannot connect to //$host/$share', rc: rc);
-      // A server that maps unknown users to guest refuses them at the tree
-      // connect with ACCESS_DENIED: for the caller, the credentials failed.
-      if (e.type != Smb2ErrorType.accessDenied) throw e;
-      throw Smb2Exception(
-        e.message,
-        type: Smb2ErrorType.auth,
-        ntStatus: e.ntStatus,
-        errno: e.errno,
-      );
+      throw _error(ctx, 'Cannot connect to //$host/$share', rc: rc);
     }
   });
 }
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
-/// The exception for the failure libsmb2 just reported on [ctx].
-///
-/// [rc] is the negative errno the call returned, when it returns one.
-/// libsmb2 resets neither its message nor its NT status between calls, so
-/// both may still describe an earlier failure:
-/// - a status counts only when it agrees with [rc], or, for the calls that
-///   return a pointer and no errno, when the message quotes it;
-/// - a message that quotes a status [rc] disagrees with is stale, and is
-///   left out.
-///
-/// An [rc] of -1 is libsmb2's generic failure (a poll or a reply that broke
-/// the session) as well as EPERM: it counts as an errno only through a
-/// status the message quotes.
+/// The exception for the failure libsmb2 just reported on [ctx]; see
+/// [failureFacts].
 Smb2Exception _error(
   Pointer<smb2_context> ctx,
   String what, {
@@ -803,40 +790,14 @@ Smb2Exception _error(
   String? path,
 }) {
   final ptr = smb2_get_error(ctx);
-  var message = ptr == nullptr ? '' : _string(ptr).trim();
-  final status = smb2_get_nterror(ctx) & 0xFFFFFFFF;
-  final rcErrno = rc != null && rc < -1 ? -rc : null;
-  final quoted = Smb2ErrorType.ntStatusInMessage(message);
-  final transport = Smb2ErrorType.fromMessage(message) != Smb2ErrorType.unknown;
-  int? ntStatus;
-  int? errno = rcErrno;
-  if (!transport) {
-    if (rcErrno != null) {
-      if (quoted != null) {
-        if (nterror_to_errno(quoted) == rcErrno) {
-          ntStatus = quoted;
-        } else {
-          message = '';
-        }
-      } else if (status != 0 && nterror_to_errno(status) == rcErrno) {
-        ntStatus = status;
-      }
-    } else if (quoted != null && quoted == status) {
-      // No errno from the call: a pointer result, or rc -1, which is both
-      // libsmb2's generic failure and EPERM. The quoted, current status
-      // tells them apart.
-      ntStatus = status;
-      final derived = nterror_to_errno(status);
-      if (derived > 0) errno = derived;
-    } else if (rc == -1 &&
-        quoted == null &&
-        status != 0 &&
-        nterror_to_errno(status) == 1) {
-      // An unquoted status that libsmb2 maps to EPERM, which rc -1 is.
-      ntStatus = status;
-      errno = 1;
-    }
-  }
+  final facts = failureFacts(
+    message: ptr == nullptr ? '' : _string(ptr).trim(),
+    status: smb2_get_nterror(ctx) & 0xFFFFFFFF,
+    rc: rc,
+    errnoOf: nterror_to_errno,
+    nameOf: (status) => _string(nterror_to_str(status)),
+  );
+  final message = facts.message;
   return Smb2Exception(
     message.isEmpty
         ? what
@@ -845,14 +806,66 @@ Smb2Exception _error(
         : '$what: $message',
     type: Smb2ErrorType.fromFailure(
       message: message,
-      ntStatus: ntStatus,
-      errno: errno,
+      ntStatus: facts.ntStatus,
+      errno: facts.errno,
     ),
-    ntStatus: ntStatus,
-    errno: errno,
+    ntStatus: facts.ntStatus,
+    errno: facts.errno,
     path: path,
   );
 }
+
+/// What a libsmb2 failure says about itself: its [message], the
+/// context's NT [status], and [rc], the negative errno the call returned
+/// when it returns one.
+///
+/// libsmb2 resets neither its message nor its status between calls, so
+/// both may still describe an earlier failure. The status counts only when
+/// it agrees with [rc], or, without an errno from the call, when the
+/// message names it (quoted as `(0x........)` or by name): a pointer
+/// result, or an [rc] of -1, which is both libsmb2's generic failure and
+/// EPERM. A message that names a status [rc] disagrees with is stale and
+/// is left out. A transport failure carries neither status nor errno.
+///
+/// [errnoOf] and [nameOf] are libsmb2's nterror_to_errno and
+/// nterror_to_str.
+@internal
+({String message, int? ntStatus, int? errno}) failureFacts({
+  required String message,
+  required int status,
+  int? rc,
+  required int Function(int status) errnoOf,
+  required String Function(int status) nameOf,
+}) {
+  if (Smb2ErrorType.fromMessage(message) != Smb2ErrorType.unknown) {
+    return (message: message, ntStatus: null, errno: null);
+  }
+  final quoted = Smb2ErrorType.ntStatusInMessage(message);
+  final named = status != 0 && _names(message, nameOf(status));
+  final rcErrno = rc != null && rc < -1 ? -rc : null;
+  if (rcErrno != null) {
+    final cited = quoted ?? (named ? status : null);
+    if (cited != null) {
+      return errnoOf(cited) == rcErrno
+          ? (message: message, ntStatus: cited, errno: rcErrno)
+          : (message: '', ntStatus: null, errno: rcErrno);
+    }
+    final agrees = status != 0 && errnoOf(status) == rcErrno;
+    return (message: message, ntStatus: agrees ? status : null, errno: rcErrno);
+  }
+  final current = quoted != null ? quoted == status : named;
+  if (!current) return (message: message, ntStatus: null, errno: null);
+  final derived = errnoOf(status);
+  return (
+    message: message,
+    ntStatus: status,
+    errno: derived > 0 ? derived : null,
+  );
+}
+
+/// Whether [message] names the status called [name] by nterror_to_str.
+bool _names(String message, String name) =>
+    name.contains('STATUS_') && message.contains(name);
 
 Smb2Exception _invalid(String message, String? path) =>
     Smb2Exception(message, type: Smb2ErrorType.invalidParam, path: path);

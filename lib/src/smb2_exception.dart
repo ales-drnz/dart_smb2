@@ -81,7 +81,9 @@ final class Smb2Exception implements Exception {
   /// than reporting it.
   bool get isCancelled => type == Smb2ErrorType.cancelled;
 
-  /// The server rejected the credentials.
+  /// The server rejected the credentials. A server that maps unknown users
+  /// to guest refuses them at the share instead, with
+  /// [Smb2ErrorType.accessDenied].
   bool get isAuthError => type == Smb2ErrorType.auth;
 
   /// Same as [isNetworkFailure].

@@ -20,6 +20,10 @@ import 'dart:ffi' as ffi;
 @ffi.Native<ffi.Int Function(ffi.Uint32)>(isLeaf: true)
 external int nterror_to_errno(int status);
 
+/// Convert an smb2/nt error code into a string
+@ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Uint32)>(isLeaf: true)
+external ffi.Pointer<ffi.Char> nterror_to_str(int status);
+
 /// Sync close()
 @ffi.Native<ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>)>()
 external int smb2_close(ffi.Pointer<smb2_context> smb2, ffi.Pointer<smb2fh> fh);

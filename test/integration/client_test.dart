@@ -357,7 +357,9 @@ void main() {
       );
     });
 
-    test('an unknown user fails with auth', () {
+    test('an unknown user fails with auth, or accessDenied as a guest', () {
+      // Samba's default maps unknown users to guest, which this share
+      // refuses at the tree connect.
       expect(
         () => Smb2Client().connect(
           host: server.host,
@@ -365,8 +367,31 @@ void main() {
           user: 'no_such_user',
           password: 'x',
         ),
-        failsWith(Smb2ErrorType.auth),
+        throwsA(
+          isA<Smb2Exception>().having(
+            (e) => e.type,
+            'type',
+            anyOf(Smb2ErrorType.auth, Smb2ErrorType.accessDenied),
+          ),
+        ),
       );
+    });
+
+    test('a read too large to allocate fails with invalidParam', () {
+      expect(
+        () => client.readFileRange(seedFile, length: 1 << 62),
+        failsWith(Smb2ErrorType.invalidParam),
+      );
+    });
+
+    test('truncate on a directory fails and keeps it', () {
+      final dir = scratch.path('not_truncated');
+      client.mkdir(dir);
+      expect(
+        () => client.truncate(dir, 0),
+        failsWith(Smb2ErrorType.isADirectory),
+      );
+      client.rmdir(dir);
     });
 
     test('a host name that does not resolve is a network failure', () {

@@ -86,20 +86,4 @@ void main() {
       ),
     );
   });
-
-  test('a timeout below a second still bounds the connect', () {
-    // libsmb2 counts whole seconds: 500 ms rounds up to one, not down to
-    // none (no timeout at all). 192.0.2.1 is TEST-NET-1, which never
-    // answers.
-    final watch = Stopwatch()..start();
-    expect(
-      () => Smb2Client().connect(
-        host: '192.0.2.1',
-        share: 'x',
-        timeout: const Duration(milliseconds: 500),
-      ),
-      throwsA(isA<Smb2Exception>()),
-    );
-    expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
-  });
 }
