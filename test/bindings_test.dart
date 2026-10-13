@@ -44,16 +44,19 @@ void main() {
     'contexts created in parallel isolates do not corrupt each other',
     () async {
       // Exercises the active_contexts lock patch: every isolate creates and
-      // destroys contexts at the same time.
+      // destroys contexts at the same time. Without the lock (libsmb2-r8)
+      // the list is corrupted within a few thousand rounds, and the run
+      // crashes or hangs.
       await Future.wait([
         for (var i = 0; i < 8; i++)
           Isolate.run(() {
-            for (var j = 0; j < 2000; j++) {
+            for (var j = 0; j < 10000; j++) {
               smb2_destroy_context(smb2_init_context());
             }
           }),
       ]);
     },
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 
   test('a client that is never connected refuses calls with state', () {
@@ -82,5 +85,21 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('a timeout below a second still bounds the connect', () {
+    // libsmb2 counts whole seconds: 500 ms rounds up to one, not down to
+    // none (no timeout at all). 192.0.2.1 is TEST-NET-1, which never
+    // answers.
+    final watch = Stopwatch()..start();
+    expect(
+      () => Smb2Client().connect(
+        host: '192.0.2.1',
+        share: 'x',
+        timeout: const Duration(milliseconds: 500),
+      ),
+      throwsA(isA<Smb2Exception>()),
+    );
+    expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
   });
 }

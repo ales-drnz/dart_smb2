@@ -118,7 +118,7 @@ external int smb2_get_nterror(ffi.Pointer<smb2_context> smb2);
 
 /// Create an SMB2 context. Function returns NULL : Failed to create a
 /// context. *smb2 : A pointer to an smb2 context.
-@ffi.Native<ffi.Pointer<smb2_context> Function()>(isLeaf: true)
+@ffi.Native<ffi.Pointer<smb2_context> Function()>()
 external ffi.Pointer<smb2_context> smb2_init_context();
 
 /// Sync mkdir()
