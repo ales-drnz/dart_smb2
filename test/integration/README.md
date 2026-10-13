@@ -1,6 +1,6 @@
 # dart_smb2 integration tests
 
-The suites in this folder run the `Smb2Client` and `Smb2Pool` API against a real Samba 4 server in Docker. A plain `dart test` skips them; CI runs them on every push.
+The suites in this folder run the `Smb2Client` and `Smb2Pool` API against a real Samba 4 server in Docker. A plain `dart test` skips them; CI runs them on pushes to `main` and `release/**` and on pull requests.
 
 ## Running them
 
@@ -12,10 +12,12 @@ dart run test/integration/bootstrap.dart
 dart test -P integration
 
 # Only the integration suites.
-dart test -P integration --tags integration
+dart test -P integration test/integration
 ```
 
-The bootstrap starts the container with `docker compose up --wait`, gives its `testuser` your uid so it can write to the share folder, and writes a 1 MiB seed file (`dart_smb2_seed.bin`). Running it again leaves a running container and a present seed alone. Each suite works in a scratch folder of its own on the share and removes it at the end.
+The bootstrap starts the container with `docker compose up --wait`, gives its `testuser` your uid so it can write to the share folder, and writes a 1 MiB seed file (`dart_smb2_seed.bin`). Running it again leaves a running container and a present seed alone. Each suite works in a scratch folder of its own on the share (`zz_<suite>_<random>`) and removes it at the end; the bootstrap removes the ones an interrupted run left behind, once they are ten minutes old.
+
+`pool_network_test.dart` puts a TCP proxy of its own (`TcpProxy` in `_fixture.dart`) between the pool and the container, to cut, freeze and refuse connections.
 
 The library comes from the build hook as in any app: the pinned release, or the binaries `hooks.user_defines` points at (see the package README).
 
@@ -37,8 +39,7 @@ The container binds `127.0.0.1` only. If port 445 is taken (macOS File Sharing, 
 ```bash
 cd test/integration
 docker compose --env-file .env.test.example down   # stop, keep the share's files
-docker compose --env-file .env.test.example down -v
-rm -rf volumes                                     # the share's files
+rm -rf volumes                                     # the share's files (a bind mount)
 ```
 
 Nothing in `test/` ships to pub.dev.

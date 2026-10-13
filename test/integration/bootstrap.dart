@@ -54,6 +54,7 @@ Future<void> main() async {
     }
   }
   try {
+    await _removeStaleScratch();
     final present =
         await pool.exists(seedFile) &&
         await pool.fileSize(seedFile) == seedSize;
@@ -68,4 +69,23 @@ Future<void> main() async {
     'Ready: //${server.host}/${server.share}. '
     'Run `dart test -P integration`.',
   );
+}
+
+/// Removes the scratch directories of runs that were interrupted: those
+/// last changed more than ten minutes ago.
+Future<void> _removeStaleScratch() async {
+  final c = connectClient();
+  try {
+    final cutoff = DateTime.now().toUtc().subtract(const Duration(minutes: 10));
+    for (final e in c.listDirectory('')) {
+      if (e.isDirectory &&
+          e.name.startsWith(scratchPrefix) &&
+          e.stat.modified.isBefore(cutoff)) {
+        stdout.writeln('Removing ${e.name}, left by an interrupted run');
+        deleteTree(c, e.name);
+      }
+    }
+  } finally {
+    c.disconnect();
+  }
 }

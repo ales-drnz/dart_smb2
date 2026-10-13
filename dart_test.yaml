@@ -4,8 +4,8 @@
 #
 #     dart test -P integration
 #
-# and only the integration suites with `dart test -P integration --tags
-# integration`.
+# and only the integration suites with `dart test -P integration
+# test/integration`.
 tags:
   integration:
     skip: 'needs the Samba container: run with -P integration'
