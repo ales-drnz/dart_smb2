@@ -56,9 +56,9 @@ A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the change
 ### Build
 - libsmb2 is upstream master of 11-10-2026 (e94eee9), with sealed-reply enforcement and receive caps, from release `libsmb2-r9`. Its `stat` asks for the reparse tag in one more request of the same compound, about 10% slower on a local network.
 - libsmb2's context list takes a lock, so pools connecting and disconnecting at once no longer race on it.
-- `rmdir` checks that its target is an empty directory, `unlink` that it is not a directory, and both report a timeout instead of hanging.
+- `rmdir` checks that its target is an empty directory, `unlink` and `truncate` that theirs is not a directory, and a request that times out before it is sent reports the timeout instead of hanging (or, for `fstat`, crashing).
 - `rename` and `echo` record their NT status, so an earlier one cannot classify their failure.
-- The Linux libraries need glibc 2.25 or later (they are built on 2.31) instead of 2.38, the Linux and Android ones are stripped, and every binary exports libsmb2's API only.
+- The Linux libraries need glibc 2.25 or later (they are built on 2.31) instead of 2.38, every binary is stripped and exports libsmb2's API only.
 - The binaries are built and checked on GitHub's runners, with `manifest.json`, `SHA256SUMS` and the LGPL texts on each release.
 - CI on GitHub: analysis on Dart 3.10 and stable, tests on Linux, macOS and Windows (and Dart 3.10 on Linux), the integration suites against Samba, through a proxy that cuts connections, and app builds for every platform.
 - The example is one Dart file instead of a Flutter app.
