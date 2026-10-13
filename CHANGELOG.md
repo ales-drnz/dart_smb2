@@ -10,7 +10,7 @@ A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the change
 - `Smb2Pool.downloadToFile()` takes the destination as a `String` path and writes it atomically.
 - `Smb2Client.listShares()` is static, and `Smb2Client` methods throw `state` on a closed or foreign handle.
 - `mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated after a network failure.
-- `rmdir` of a file fails with `notADirectory` (it deleted the file), and `deleteFile` of a directory with `isADirectory` (it deleted an empty one, and did nothing on one with entries).
+- `rmdir` of a file fails with `notADirectory` (it deleted the file), `deleteFile` of a directory with `isADirectory` (it deleted an empty one, and did nothing on one with entries), and `truncate` of a directory with `isADirectory` (it did nothing).
 - `Smb2Pool.connect(workers: 0)` throws `invalidParam`.
 - `Smb2Stat` requires `accessed` and `changed`, the public types are `final`, `Smb2PoolHandle` no longer exposes `worker`, `id` and `markClosed()`, and the `Smb2File` constructor is internal.
 
@@ -27,12 +27,14 @@ A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the change
 
 ### Changed
 - The error type comes from the server's NT status and from per-platform errno tables: Windows errors were misread. A status counts only when the server answered this call with it.
-- A host name that does not resolve and libsmb2's generic failures are `connection` errors; a user the server does not know is `auth`, also when the server maps it to guest; a server out of resources is `inUse`; a read-only share is `accessDenied`.
+- A host name that does not resolve and libsmb2's generic failures are `connection` errors; a server out of resources is `inUse`; a read-only share is `accessDenied`.
 - `streamFile()` reads one chunk ahead, 4 MiB by default; `downloadToFile()` writes at the disk's pace.
 - Calls go to the least busy worker, and the workers connect in parallel.
 - When a reconnect fails, the slot's calls go to the other workers, and the slot tries again in the background.
 - A cancelled call returns at once, also while it waits for a reconnect or a slot.
 - `disconnect()` aborts a reconnect in progress instead of waiting for its connect.
+- `closeHandle()` returns at once: the worker closes the file after the requests sent before it, so leaving a stream or a `withFile()` never waits behind a read stuck on the network.
+- A worker that dies without a call failing on it, or whose cancelled request hits a network failure, is reconnected at once; a slot that cannot reconnect retries only network failures, and a call that finds no live worker reports why the reconnect failed.
 - Reads reach the calling isolate in native buffers, without a copy.
 - `streamWrite()` repeats a chunk after a reconnect.
 - Paths drop leading slashes and take backslashes.

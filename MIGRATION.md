@@ -75,9 +75,12 @@ Some failures change type:
 - `Smb2Pool.connect()` with wrong credentials reports `auth`, not
   `unknown` (the worker's own error, not "Worker failed to start");
 - `Smb2Pool.connect()` and `Smb2Client.connect()` with a user the server
-  does not know report `auth` too, also from a server that maps unknown
-  users to guest and refuses them at the tree connect;
+  does not know report `auth`, or `accessDenied` from a server that maps
+  unknown users to guest and refuses the guest at the tree connect (the
+  same answer as for a known user without access to the share);
 - a host name that does not resolve reports `connection`, not `io`;
+- `truncate` of a directory reports `isADirectory`; it used to return
+  without doing anything;
 - `rmdir` of a directory with entries reports `notEmpty`, and `rmdir` of a
   file `notADirectory`; they used to return without removing the
   directory, and to delete the file;
@@ -114,7 +117,7 @@ token.cancel();
 ```
 
 Every call on a connected pool takes a `cancelToken`, except
-`closeHandle` and `disconnect`, so a page can cancel its listings and
+`closeHandle`, `disconnect` and the deprecated `listShares`, so a page can cancel its listings and
 reads the same way it cancels dart_plex and dart_jellyfin calls.
 
 ## Calls that are not repeated

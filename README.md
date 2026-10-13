@@ -36,7 +36,7 @@ dependencies:
 | iOS | 13.0 | arm64, x86_64 | 286, 250 KB | Yes | Yes |
 | macOS | 10.15 | arm64, x86_64 | 272, 254 KB | Yes | - |
 | Windows | 10 | arm64, x86_64 | 395, 408 KB | Yes | - |
-| Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 259, 268 KB | Yes | - |
+| Linux | glibc 2.25, built on 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 259, 268 KB | Yes | - |
 
 The package needs Dart 3.10, and Flutter 3.38 in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
 
@@ -53,7 +53,7 @@ hooks:
       libsmb2: path/to/libsmb2
 ```
 
-The path can be a directory holding files named like the release assets (`libsmb2_android-arm64-v8a.so`, `libsmb2_ios.xcframework.zip` and so on), such as the `release_builds/` folder of [libsmb2-scripts](https://github.com/ales-drnz/libsmb2-scripts), and each target takes its own. A single file is bundled for every target, so it only suits a build for one target and architecture. Local files are bundled without a checksum, and must be builds of the pinned release or of one with the same ABI: an older libsmb2 loads, but reads the stat fields wrong.
+The path can be a directory holding files named like the release assets (`libsmb2_android-arm64-v8a.so`, `libsmb2_ios.xcframework.zip` and so on), such as the `release_builds/` folder of [libsmb2-scripts](https://github.com/ales-drnz/libsmb2-scripts), and each target takes its own. A single file is bundled for every target, so it only suits a build for one target and architecture. Local files are bundled without a checksum, and must be builds of the pinned release, `libsmb2-r9` from libsmb2-scripts 0.2.0 or later: an older libsmb2 loads, but reads the stat fields wrong and lacks the lock that lets the workers connect in parallel.
 
 ---
 
@@ -288,7 +288,7 @@ for (final share in shares.where((s) => s.isDisk && !s.isHidden)) {
 await pool.disconnect();
 ```
 
-Each worker finishes the requests it has already been sent, closes its open files and logs off, and its isolate ends; a worker that does not finish within 5 seconds is killed, and its requests fail with a `connection` error. A reconnect in progress is aborted. Calls waiting for a reconnect, and later calls, fail with a `state` error. Nothing outlives the call.
+Each worker finishes the requests it has already been sent, closes its open files and logs off, and its isolate ends; a worker that does not finish within 5 seconds is killed, and its requests fail with a `connection` error. A reconnect in progress is aborted. Calls waiting for a reconnect, and later calls, fail with a `state` error. Nothing outlives the call. A read the killed worker was in the middle of loses its buffer, up to the length it asked for.
 
 ### 2. Paths
 
@@ -386,7 +386,7 @@ await for (final chunk in stream) {
 }
 ```
 
-The stream keeps one file handle open and reads the next chunk while you handle the current one. It waits while its listener is paused, so at most two chunks (4 MiB each by default, see `chunkSize`) are in memory. Cancelling the subscription closes the handle, and its future completes without error, even when the read ahead fails.
+The stream keeps one file handle open and reads the next chunk while you handle the current one. It waits while its listener is paused, so the stream holds at most two chunks (4 MiB each by default, see `chunkSize`); a chunk you are done with is freed when it is garbage collected, so many streams at once can use a multiple of that for a while. Cancelling the subscription, or the token, closes the handle and stops the read in flight; the subscription's future completes without error.
 
 #### 5.2 Downloading to disk
 
@@ -455,7 +455,7 @@ await pool.rmdir('Backup/2026');
 
 ### 8. Cancellation
 
-Every call on a connected pool takes an `Smb2CancelToken`, except `closeHandle` and `disconnect`. A cancelled call throws an `Smb2Exception` of type `cancelled` at once, also while it waits for a reconnect; a request the worker already sent finishes on the server and its result is dropped, and a file it opened is closed.
+Every call on a connected pool takes an `Smb2CancelToken`, except `closeHandle`, `disconnect` and the deprecated `listShares`. A cancelled call throws an `Smb2Exception` of type `cancelled` at once, also while it waits for a reconnect; a request the worker already sent finishes on the server and its result is dropped, and a file it opened is closed.
 
 ```dart
 final token = Smb2CancelToken();
@@ -487,7 +487,7 @@ Every failure is an `Smb2Exception`. Its `type` comes from the NT status the ser
 | :--- | :--- |
 | `connection` | The connection failed or was lost, the host name does not resolve, or the server dropped the session or a handle |
 | `timeout` | The server did not answer within the timeout |
-| `auth` | Wrong credentials, or the account cannot log on |
+| `auth` | Wrong credentials, or the account cannot log on. A server that maps unknown users to guest refuses them at the share with `accessDenied` instead |
 | `notFound` | The path or the share does not exist |
 | `accessDenied` | No permission for the operation |
 | `notADirectory`, `isADirectory` | A file where a directory was expected, or the opposite |

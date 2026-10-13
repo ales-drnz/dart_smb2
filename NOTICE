@@ -16,6 +16,8 @@ libsmb2-scripts commit it was built from, which is the corresponding source
 of its binaries.
 
 An app that distributes libsmb2 this way should include the LGPL-2.1 text
-and this notice, and point to that source. The library is loaded
-dynamically, and hooks.user_defines.dart_smb2.libsmb2 replaces it with
-another build (see the package README).
+and this notice, and point to that source. The package's LICENSE carries
+libsmb2's notice and the LGPL-2.1 text after its own licence, in the form
+Flutter's license page collects, so a Flutter app lists them there. The
+library is loaded dynamically, and hooks.user_defines.dart_smb2.libsmb2
+replaces it with another build (see the package README).
