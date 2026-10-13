@@ -43,7 +43,7 @@ jobs:
       - run: dart analyze --fatal-infos
       - name: Format
         if: matrix.sdk == 'stable'
-        run: dart format --output=none --set-exit-if-changed lib test example hook tool
+        run: dart format --output=none --set-exit-if-changed lib test example hook tool test_app/lib test_app/integration_test test_app/test_driver
       - name: Publish dry run
         if: matrix.sdk == 'stable'
         run: dart pub publish --dry-run
@@ -150,6 +150,100 @@ jobs:
         run: dart test -P integration test/integration
       - name: Samba logs
         if: failure()
+        run: docker logs dart-smb2-test
+
+  # test_app/integration_test on every platform, as an app runs it: the
+  # library the hook bundles loads on the device and the pool drives it.
+  # Android and Linux also run the server group, against the Samba
+  # container (from the Android emulator, the host's loopback is
+  # 10.0.2.2); the macOS and Windows runners cannot run Linux containers,
+  # so they and the iOS simulator run the offline group.
+  device:
+    name: Device ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Android
+            os: ubuntu-24.04
+            server: '10.0.2.2'
+          - name: Linux
+            os: ubuntu-24.04
+            server: '127.0.0.1'
+          - name: macOS
+            os: macos-26
+          - name: iOS
+            os: macos-26
+          - name: Windows
+            os: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        if: matrix.name == 'Android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+      - uses: ./.github/actions/libsmb2-from-run
+        with:
+          run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
+          token: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
+          pubspecs: test_app/pubspec.yaml
+      - name: Start Samba and seed the share
+        if: matrix.server
+        run: |
+          dart pub get
+          dart run test/integration/bootstrap.dart
+      - name: Install Linux build dependencies
+        if: matrix.name == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev xvfb
+      - name: Enable KVM
+        if: matrix.name == 'Android'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - run: flutter pub get
+        working-directory: test_app
+      - run: flutter analyze
+        if: matrix.name == 'Linux'
+        working-directory: test_app
+      - name: Integration tests (Android emulator)
+        if: matrix.name == 'Android'
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          working-directory: test_app
+          script: flutter test integration_test -d emulator-5554 --dart-define=SMB2_TEST_HOST=${{ matrix.server }}
+      - name: Integration tests (Linux)
+        if: matrix.name == 'Linux'
+        working-directory: test_app
+        run: xvfb-run -a flutter test integration_test -d linux --dart-define=SMB2_TEST_HOST=${{ matrix.server }}
+      - name: Integration tests (macOS)
+        if: matrix.name == 'macOS'
+        working-directory: test_app
+        run: flutter test integration_test -d macos
+      - name: Integration tests (iOS simulator)
+        if: matrix.name == 'iOS'
+        working-directory: test_app
+        run: |
+          udid="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for r,v in d.items() if "iOS" in r for x in v if x["name"].startswith("iPhone")))')"
+          xcrun simctl boot "$udid"
+          flutter test integration_test -d "$udid"
+      - name: Integration tests (Windows)
+        if: matrix.name == 'Windows'
+        working-directory: test_app
+        shell: bash
+        run: flutter test integration_test -d windows
+      - name: Samba logs
+        if: failure() && matrix.server
         run: docker logs dart-smb2-test
 
   # A throwaway Flutter app on each platform: the hook must bundle libsmb2

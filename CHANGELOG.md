@@ -60,7 +60,7 @@ A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the change
 - `rename` and `echo` record their NT status, so an earlier one cannot classify their failure.
 - The Linux libraries need glibc 2.25 or later (they are built on 2.31) instead of 2.38, every binary is stripped and exports libsmb2's API only.
 - The binaries are built and checked on GitHub's runners, with `manifest.json`, `SHA256SUMS` and the LGPL texts on each release.
-- CI on GitHub: analysis on Dart 3.10 and stable, tests on Linux, macOS and Windows (and Dart 3.10 on Linux), the integration suites against Samba, through a proxy that cuts connections, and app builds for every platform.
+- CI on GitHub: analysis on Dart 3.10 and stable, tests on Linux, macOS and Windows (and Dart 3.10 on Linux), the integration suites against Samba, through a proxy that cuts connections, app builds for every platform, and `test_app/`'s on-device suite on an Android emulator, the iOS simulator, Linux, macOS and Windows.
 - The example is one Dart file instead of a Flutter app.
 
 ## [0.1.3] - 19-09-2026

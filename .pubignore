@@ -30,3 +30,6 @@ dart_test.yaml
 # Dev tools: ffigen, the drift check, the release updater, the icon and
 # diagram generator
 /tool/
+
+# On-device integration tests: a Flutter app of their own
+/test_app/

@@ -21,6 +21,14 @@ The bootstrap starts the container with `docker compose up --wait`, gives its `t
 
 The library comes from the build hook as in any app: the pinned release, or the binaries `hooks.user_defines` points at (see the package README).
 
+## On the device
+
+These suites run on the host. `test_app/` holds the on-device ones: a
+Flutter app that bundles libsmb2 through the hook and runs
+`integration_test/smoke_test.dart` on Android, iOS, Linux, macOS and
+Windows, offline and, with `--dart-define=SMB2_TEST_HOST=...`, against
+this container. See `test_app/README.md`.
+
 ## Settings
 
 The container and the tests read `test/integration/.env.test`, or `.env.test.example` when there is none:

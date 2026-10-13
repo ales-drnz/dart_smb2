@@ -11,6 +11,9 @@ analyzer:
     strict-casts: true
     strict-inference: true
     strict-raw-types: true
+  exclude:
+    # A Flutter app with its own lints, analyzed by its CI job.
+    - test_app/**
 
 linter:
   rules:
