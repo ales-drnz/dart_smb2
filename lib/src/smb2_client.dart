@@ -107,12 +107,15 @@ final class Smb2Client implements Finalizable {
     String? password,
     String? domain,
     Duration timeout = const Duration(seconds: 30),
+    @Deprecated('Use timeout. Will be removed in 0.3.0.') int? timeoutSeconds,
   }) {
     final ctx = _newContext(
       user: user,
       password: password,
       domain: domain,
-      timeout: timeout,
+      timeout: timeoutSeconds != null
+          ? Duration(seconds: timeoutSeconds)
+          : timeout,
     );
     try {
       _connectContext(ctx, host: host, share: r'IPC$', user: user);
@@ -608,16 +611,14 @@ final class Smb2Client implements Finalizable {
     if (length == 0) return (0, 0);
     final buf = malloc<Uint8>(length);
     try {
+      // The count is a uint32 and the result an int: ask for at most one
+      // MaxReadSize per call, which libsmb2 would cap the request at anyway.
+      final max = smb2_get_max_read_size(_ctx);
+      final chunk = max > 0 ? max : _readChunkFallback;
       var done = 0;
       while (done < length) {
-        // libsmb2 caps each read at the negotiated MaxReadSize: loop.
-        final n = smb2_pread(
-          _ctx,
-          fh,
-          buf + done,
-          length - done,
-          offset + done,
-        );
+        final want = length - done < chunk ? length - done : chunk;
+        final n = smb2_pread(_ctx, fh, buf + done, want, offset + done);
         if (n < 0) throw _error(_ctx, 'Read failed', rc: n, path: handle.path);
         if (n == 0) break; // End of file.
         done += n;
@@ -766,7 +767,16 @@ void _connectContext(
       (user ?? '').toNativeUtf8(allocator: arena).cast(),
     );
     if (rc < 0) {
-      throw _error(ctx, 'Cannot connect to //$host/$share', rc: rc);
+      final e = _error(ctx, 'Cannot connect to //$host/$share', rc: rc);
+      // A server that maps unknown users to guest refuses them at the tree
+      // connect with ACCESS_DENIED: for the caller, the credentials failed.
+      if (e.type != Smb2ErrorType.accessDenied) throw e;
+      throw Smb2Exception(
+        e.message,
+        type: Smb2ErrorType.auth,
+        ntStatus: e.ntStatus,
+        errno: e.errno,
+      );
     }
   });
 }
@@ -775,9 +785,17 @@ void _connectContext(
 
 /// The exception for the failure libsmb2 just reported on [ctx].
 ///
-/// [rc] is the negative errno the call returned, when it returns one; the
-/// context's NT status counts only when it agrees with it, as libsmb2 does
-/// not reset the status between calls.
+/// [rc] is the negative errno the call returned, when it returns one.
+/// libsmb2 resets neither its message nor its NT status between calls, so
+/// both may still describe an earlier failure:
+/// - a status counts only when it agrees with [rc], or, for the calls that
+///   return a pointer and no errno, when the message quotes it;
+/// - a message that quotes a status [rc] disagrees with is stale, and is
+///   left out.
+///
+/// An [rc] of -1 is libsmb2's generic failure (a poll or a reply that broke
+/// the session) as well as EPERM: it counts as an errno only through a
+/// status the message quotes.
 Smb2Exception _error(
   Pointer<smb2_context> ctx,
   String what, {
@@ -785,26 +803,52 @@ Smb2Exception _error(
   String? path,
 }) {
   final ptr = smb2_get_error(ctx);
-  final message = ptr == nullptr ? '' : _string(ptr);
-  final status = smb2_get_nterror(ctx);
-  final errno = rc != null && rc < 0 ? -rc : null;
-  final fresh =
-      status != 0 && (errno == null || nterror_to_errno(status) == errno);
+  var message = ptr == nullptr ? '' : _string(ptr).trim();
+  final status = smb2_get_nterror(ctx) & 0xFFFFFFFF;
+  final rcErrno = rc != null && rc < -1 ? -rc : null;
   final quoted = Smb2ErrorType.ntStatusInMessage(message);
+  final transport = Smb2ErrorType.fromMessage(message) != Smb2ErrorType.unknown;
+  int? ntStatus;
+  int? errno = rcErrno;
+  if (!transport) {
+    if (rcErrno != null) {
+      if (quoted != null) {
+        if (nterror_to_errno(quoted) == rcErrno) {
+          ntStatus = quoted;
+        } else {
+          message = '';
+        }
+      } else if (status != 0 && nterror_to_errno(status) == rcErrno) {
+        ntStatus = status;
+      }
+    } else if (quoted != null && quoted == status) {
+      // No errno from the call: a pointer result, or rc -1, which is both
+      // libsmb2's generic failure and EPERM. The quoted, current status
+      // tells them apart.
+      ntStatus = status;
+      final derived = nterror_to_errno(status);
+      if (derived > 0) errno = derived;
+    } else if (rc == -1 &&
+        quoted == null &&
+        status != 0 &&
+        nterror_to_errno(status) == 1) {
+      // An unquoted status that libsmb2 maps to EPERM, which rc -1 is.
+      ntStatus = status;
+      errno = 1;
+    }
+  }
   return Smb2Exception(
     message.isEmpty
         ? what
         : message.toLowerCase().startsWith(what.toLowerCase())
         ? message
         : '$what: $message',
-    type: Smb2ErrorType.classify(
+    type: Smb2ErrorType.fromFailure(
       message: message,
-      ntStatus: status,
-      ntStatusFresh: fresh,
+      ntStatus: ntStatus,
       errno: errno,
-      os: Platform.operatingSystem,
     ),
-    ntStatus: quoted ?? (fresh ? status & 0xFFFFFFFF : null),
+    ntStatus: ntStatus,
     errno: errno,
     path: path,
   );
@@ -894,6 +938,9 @@ final _OpenFlags _flags = _OpenFlags._resolve();
 
 /// Longest symlink target read; Linux's PATH_MAX.
 const int _readlinkBufferSize = 4096;
+
+/// Read size when the server reports no MaxReadSize.
+const int _readChunkFallback = 1024 * 1024;
 
 /// Write size when the server reports no MaxWriteSize.
 const int _writeChunkFallback = 1024 * 1024;

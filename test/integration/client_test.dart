@@ -308,6 +308,103 @@ void main() {
     });
   });
 
+  group('errors', () {
+    Matcher failsWith(Smb2ErrorType type) =>
+        throwsA(isA<Smb2Exception>().having((e) => e.type, 'type', type));
+
+    test('an earlier status does not classify a later failure', () {
+      final src = scratch.path('stale_src');
+      final dst = scratch.path('stale_dst');
+      client
+        ..writeFile(src, Uint8List(1))
+        ..writeFile(dst, Uint8List(1));
+      // Leaves OBJECT_NAME_NOT_FOUND in the context and its message.
+      expect(
+        () => client.readFile('no_such_file'),
+        failsWith(Smb2ErrorType.notFound),
+      );
+      expect(
+        () => client.rename(src, dst),
+        throwsA(
+          isA<Smb2Exception>()
+              .having((e) => e.type, 'type', Smb2ErrorType.alreadyExists)
+              .having((e) => e.ntStatus, 'ntStatus', isNot(0xC0000034))
+              .having(
+                (e) => e.message,
+                'message',
+                isNot(contains('0xc0000034')),
+              ),
+        ),
+      );
+    });
+
+    test('an open or a listing reports the errno of its status', () {
+      expect(
+        () => client.readFile('no_such_file'),
+        throwsA(
+          isA<Smb2Exception>()
+              .having((e) => e.ntStatus, 'ntStatus', 0xC0000034)
+              .having((e) => e.errno, 'errno', isNotNull)
+              // ignore: deprecated_member_use_from_same_package
+              .having((e) => e.errorCode, 'errorCode', isNotNull),
+        ),
+      );
+      expect(
+        () => client.listDirectory('no_such_dir'),
+        throwsA(
+          isA<Smb2Exception>().having((e) => e.errno, 'errno', isNotNull),
+        ),
+      );
+    });
+
+    test('an unknown user fails with auth', () {
+      expect(
+        () => Smb2Client().connect(
+          host: server.host,
+          share: server.share,
+          user: 'no_such_user',
+          password: 'x',
+        ),
+        failsWith(Smb2ErrorType.auth),
+      );
+    });
+
+    test('a host name that does not resolve is a network failure', () {
+      expect(
+        () => Smb2Client().connect(
+          host: 'no-such-host.invalid',
+          share: server.share,
+          timeout: const Duration(seconds: 5),
+        ),
+        throwsA(
+          isA<Smb2Exception>().having(
+            (e) => e.isNetworkFailure,
+            'isNetworkFailure',
+            isTrue,
+          ),
+        ),
+      );
+    });
+
+    test('deleteFile on a directory fails and keeps it', () {
+      final dir = scratch.path('not_a_file');
+      client
+        ..mkdir(dir)
+        ..writeFile('$dir/f', Uint8List(1));
+      expect(
+        () => client.deleteFile(dir),
+        failsWith(Smb2ErrorType.isADirectory),
+      );
+      expect(client.exists('$dir/f'), isTrue);
+      client.deleteFile('$dir/f');
+      expect(
+        () => client.deleteFile(dir),
+        failsWith(Smb2ErrorType.isADirectory),
+      );
+      client.rmdir(dir);
+    });
+  });
+
   group('writes and management', () {
     test(
       'writeFile replaces, writeFileRange patches, writeFileChunked streams',

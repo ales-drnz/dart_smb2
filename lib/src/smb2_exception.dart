@@ -29,12 +29,16 @@ final class Smb2Exception implements Exception {
   /// Semantic category for programmatic handling.
   final Smb2ErrorType type;
 
-  /// The NTSTATUS the server answered with, when the failure came from the
-  /// server (for example `0xC0000034`, OBJECT_NAME_NOT_FOUND).
+  /// The NTSTATUS the server answered this call with (for example
+  /// `0xC0000034`, OBJECT_NAME_NOT_FOUND), or null when the failure did not
+  /// come from the server or its status could not be told apart from an
+  /// earlier one.
   final int? ntStatus;
 
-  /// The errno libsmb2 returned, in the numbering of the platform the
-  /// binary runs on, when there was one.
+  /// The errno of the failure, in the numbering of the platform the binary
+  /// runs on: the one the libsmb2 call returned, or for an open or a
+  /// listing, which return none, the one of [ntStatus]. Null for transport
+  /// failures and for libsmb2's generic failure.
   final int? errno;
 
   /// The share-relative path of the operation, when it has one.
@@ -58,14 +62,15 @@ final class Smb2Exception implements Exception {
     this.stackTrace,
   });
 
-  /// No answer from the server at all: the connection failed, was lost or
-  /// timed out. The server may be down or unreachable — not the same as an
-  /// answer that says no.
+  /// The connection, the session or a handle was lost, or the server did
+  /// not answer in time. The server may be down or unreachable, and a
+  /// reconnect may recover — not the same as an answer that says no.
   bool get isNetworkFailure => type.isNetworkFailure;
 
   /// A failure that may pass if the same call is made again later: a
-  /// network failure, or a file another client holds open or locked. Not
-  /// an auth error, a missing path, a cancellation or a misuse.
+  /// network failure, or a file or server that is busy
+  /// ([Smb2ErrorType.inUse]). Not an auth error, a missing path, a
+  /// cancellation or a misuse.
   bool get isTransient => isNetworkFailure || type == Smb2ErrorType.inUse;
 
   /// The path or share does not exist. For a read this is a confirmed
@@ -83,7 +88,8 @@ final class Smb2Exception implements Exception {
   @Deprecated('Use isNetworkFailure. Will be removed in 0.3.0.')
   bool get isConnectionError => isNetworkFailure;
 
-  /// Same as [errno].
+  /// Same as [errno]. 0.1.x read it from the context's NT status after
+  /// every failure; it is null where [errno] is.
   @Deprecated('Use errno. Will be removed in 0.3.0.')
   int? get errorCode => errno;
 

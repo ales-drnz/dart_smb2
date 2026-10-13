@@ -148,13 +148,12 @@ void main() {
     });
   });
 
-  group('classify', () {
-    test('a transport message wins over a stale status', () {
+  group('fromFailure', () {
+    test('a transport message wins over a status', () {
       expect(
-        Smb2ErrorType.classify(
+        Smb2ErrorType.fromFailure(
           message: 'Read from socket failed',
           ntStatus: 0xC0000034,
-          ntStatusFresh: true,
           errno: 2,
           os: 'linux',
         ),
@@ -162,10 +161,11 @@ void main() {
       );
     });
 
-    test('a quoted status wins over errno', () {
+    test('the status wins over errno', () {
       expect(
-        Smb2ErrorType.classify(
+        Smb2ErrorType.fromFailure(
           message: 'Rmdir failed with (0xc0000101) STATUS_DIRECTORY_NOT_EMPTY.',
+          ntStatus: 0xC0000101,
           errno: 13,
           os: 'linux',
         ),
@@ -173,35 +173,84 @@ void main() {
       );
     });
 
-    test('a stale status is ignored in favour of errno', () {
+    test('the message alone does not give a status', () {
+      // Only the caller can tell a quoted status from a stale one.
       expect(
-        Smb2ErrorType.classify(
-          message: 'Failed',
-          ntStatus: 0xC000006D,
-          errno: 2,
+        Smb2ErrorType.fromFailure(
+          message:
+              'Open failed with (0xc0000034) STATUS_OBJECT_NAME_NOT_FOUND.',
+          errno: 17,
           os: 'linux',
         ),
-        Smb2ErrorType.notFound,
+        Smb2ErrorType.alreadyExists,
       );
     });
 
-    test('a fresh status is used without a quote', () {
+    test('errno follows the platform, the running one by default', () {
       expect(
-        Smb2ErrorType.classify(
-          message: 'Stat failed: STATUS_OBJECT_PATH_NOT_FOUND',
-          ntStatus: 0xC000003A,
-          ntStatusFresh: true,
-          errno: 2,
-          os: 'linux',
-        ),
+        Smb2ErrorType.fromFailure(message: '', errno: 110, os: 'windows'),
+        Smb2ErrorType.connection,
+      );
+      expect(
+        Smb2ErrorType.fromFailure(message: '', errno: 2),
         Smb2ErrorType.notFound,
       );
     });
 
     test('nothing to go on is unknown', () {
+      expect(Smb2ErrorType.fromFailure(message: ''), Smb2ErrorType.unknown);
+    });
+
+    test('the 0.1.x classify still works', () {
       expect(
-        Smb2ErrorType.classify(message: '', os: 'linux'),
-        Smb2ErrorType.unknown,
+        // ignore: deprecated_member_use_from_same_package
+        Smb2ErrorType.classify('Read from socket failed', 2),
+        Smb2ErrorType.connection,
+      );
+      expect(
+        // ignore: deprecated_member_use_from_same_package
+        Smb2ErrorType.classify('Failed', 2),
+        Smb2ErrorType.notFound,
+      );
+    });
+  });
+
+  group('failures without a status', () {
+    test('a host name that does not resolve is a connection failure', () {
+      expect(
+        Smb2ErrorType.fromMessage(
+          'Invalid address:nas.invalid  Can not resolve into IPv4/v6.',
+        ),
+        Smb2ErrorType.connection,
+      );
+    });
+
+    test('libsmb2\'s generic failures are connection failures', () {
+      expect(
+        Smb2ErrorType.fromMessage('Poll failed'),
+        Smb2ErrorType.connection,
+      );
+      expect(
+        Smb2ErrorType.fromMessage(
+          'smb2_service failed with : Bad SMB2 signature',
+        ),
+        Smb2ErrorType.connection,
+      );
+    });
+
+    test('exhausted server resources are transient', () {
+      for (final status in [0xC0000205, 0xC000011F, 0xC000009A, 0xC0000017]) {
+        expect(Smb2ErrorType.fromNtStatus(status), Smb2ErrorType.inUse);
+      }
+      for (final os in ['linux', 'macos', 'windows']) {
+        for (final n in [12, 16, 23, 24]) {
+          expect(Smb2ErrorType.fromErrno(n, os: os), Smb2ErrorType.inUse);
+        }
+        expect(Smb2ErrorType.fromErrno(30, os: os), Smb2ErrorType.accessDenied);
+      }
+      expect(
+        Smb2ErrorType.fromNtStatus(0xC00000A2),
+        Smb2ErrorType.accessDenied,
       );
     });
   });

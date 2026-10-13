@@ -2,6 +2,8 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
+import 'dart:io' show Platform;
+
 import 'smb2_exception.dart';
 
 /// What went wrong, independent of the platform the error came from.
@@ -9,8 +11,9 @@ import 'smb2_exception.dart';
 /// [Smb2Exception] carries one, so callers can decide whether to retry,
 /// ask for credentials again, or report the error.
 enum Smb2ErrorType {
-  /// The connection failed or was lost: refused, reset, unreachable, or a
-  /// session the server tore down.
+  /// The connection failed or was lost: refused, reset, unreachable, a
+  /// host name that does not resolve, or a session or handle the server
+  /// tore down. A new connection may recover.
   connection,
 
   /// The server did not answer within the timeout.
@@ -38,7 +41,9 @@ enum Smb2ErrorType {
   /// The directory is not empty.
   notEmpty,
 
-  /// Another client holds the file open or locked in a conflicting way.
+  /// The file or the server is busy: another client holds the file open
+  /// or locked in a conflicting way, or the server is out of resources for
+  /// the moment (too many open files, no memory).
   inUse,
 
   /// The share is out of space or over quota.
@@ -64,8 +69,9 @@ enum Smb2ErrorType {
   /// Anything not covered above.
   unknown;
 
-  /// Whether the server could not be reached or stopped answering:
-  /// [connection] or [timeout].
+  /// Whether the connection, the session or a handle was lost, or the
+  /// server did not answer in time: [connection] or [timeout]. A reconnect
+  /// may recover.
   bool get isNetworkFailure =>
       this == Smb2ErrorType.connection || this == Smb2ErrorType.timeout;
 
@@ -81,11 +87,11 @@ enum Smb2ErrorType {
   static Smb2ErrorType fromNtStatus(int status) =>
       _ntStatus[status & 0xFFFFFFFF] ?? Smb2ErrorType.unknown;
 
-  /// The type of an errno value as the platform the binary was built for
-  /// defines it ([os] defaults to the running one: `linux`, `android`,
-  /// `macos`, `ios` or `windows`), or [unknown].
-  static Smb2ErrorType fromErrno(int errno, {required String os}) {
-    final table = switch (os) {
+  /// The type of an errno value as [os] defines it (`linux`, `android`,
+  /// `macos`, `ios` or `windows`; the running platform when omitted), or
+  /// [unknown].
+  static Smb2ErrorType fromErrno(int errno, {String? os}) {
+    final table = switch (os ?? Platform.operatingSystem) {
       'macos' || 'ios' => _darwinErrno,
       'windows' => _windowsErrno,
       _ => _linuxErrno,
@@ -112,30 +118,32 @@ enum Smb2ErrorType {
   /// Classifies a libsmb2 failure from everything it reported.
   ///
   /// In order, the first that gives a type wins:
-  /// 1. a transport failure in [message] (libsmb2 reports those without
-  ///    updating the NT status, which may still hold an earlier error);
-  /// 2. [ntStatus], when the call set it ([ntStatusFresh]) or [message]
-  ///    quotes it as `(0x........)`;
-  /// 3. [errno], the negated return code of the failed call;
+  /// 1. a transport failure in [message] (libsmb2 reports those without an
+  ///    NT status);
+  /// 2. [ntStatus], the status the server answered this call with;
+  /// 3. [errno], the errno of the failed call, as [os] numbers it (the
+  ///    running platform when omitted);
   /// 4. [unknown].
-  static Smb2ErrorType classify({
+  static Smb2ErrorType fromFailure({
     required String message,
     int? ntStatus,
-    bool ntStatusFresh = false,
     int? errno,
-    required String os,
+    String? os,
   }) {
     final fromMsg = fromMessage(message);
     if (fromMsg != Smb2ErrorType.unknown) return fromMsg;
-    final quoted = ntStatusInMessage(message);
-    final status = quoted ?? (ntStatusFresh ? ntStatus : null);
-    if (status != null) {
-      final t = fromNtStatus(status);
+    if (ntStatus != null && ntStatus != 0) {
+      final t = fromNtStatus(ntStatus);
       if (t != Smb2ErrorType.unknown) return t;
     }
     if (errno != null && errno > 0) return fromErrno(errno, os: os);
     return Smb2ErrorType.unknown;
   }
+
+  /// The type of a libsmb2 [message] and the [errno] of the same failure.
+  @Deprecated('Use fromFailure. Will be removed in 0.3.0.')
+  static Smb2ErrorType classify(String message, int errno) =>
+      fromFailure(message: message, errno: errno);
 
   /// The NT status libsmb2 quotes in [message] as `(0x........)`, if any.
   static int? ntStatusInMessage(String message) {
@@ -163,9 +171,12 @@ const _connectionMarkers = <String>[
   'already disconnected',
   'no connected tree-id',
   'no tree-id connected',
+  'can not resolve', // socket.c: the host name does not resolve
+  'poll failed', // sync.c
+  'smb2_service failed', // sync.c: a reply that broke the session
 ];
 
-/// NTSTATUS codes ([MS-ERREF] 2.3.1) that SMB servers answer with.
+/// NTSTATUS codes (MS-ERREF 2.3.1) that SMB servers answer with.
 const _ntStatus = <int, Smb2ErrorType>{
   // Not found
   0xC000000F: Smb2ErrorType.notFound, // NO_SUCH_FILE
@@ -193,6 +204,7 @@ const _ntStatus = <int, Smb2ErrorType>{
   0xC0000061: Smb2ErrorType.accessDenied, // PRIVILEGE_NOT_HELD
   0xC0000121: Smb2ErrorType.accessDenied, // CANNOT_DELETE
   0xC00000CA: Smb2ErrorType.accessDenied, // NETWORK_ACCESS_DENIED
+  0xC00000A2: Smb2ErrorType.accessDenied, // MEDIA_WRITE_PROTECTED
   // Path shape
   0xC0000103: Smb2ErrorType.notADirectory, // NOT_A_DIRECTORY
   0xC00000BA: Smb2ErrorType.isADirectory, // FILE_IS_A_DIRECTORY
@@ -202,6 +214,10 @@ const _ntStatus = <int, Smb2ErrorType>{
   0xC0000043: Smb2ErrorType.inUse, // SHARING_VIOLATION
   0xC0000054: Smb2ErrorType.inUse, // FILE_LOCK_CONFLICT
   0xC0000055: Smb2ErrorType.inUse, // LOCK_NOT_GRANTED
+  0xC0000017: Smb2ErrorType.inUse, // NO_MEMORY
+  0xC000009A: Smb2ErrorType.inUse, // INSUFFICIENT_RESOURCES
+  0xC000011F: Smb2ErrorType.inUse, // TOO_MANY_OPENED_FILES
+  0xC0000205: Smb2ErrorType.inUse, // INSUFF_SERVER_RESOURCES
   // Space
   0xC000007F: Smb2ErrorType.diskFull, // DISK_FULL
   0xC0000044: Smb2ErrorType.diskFull, // QUOTA_EXCEEDED
@@ -240,13 +256,18 @@ const _linuxErrno = <int, Smb2ErrorType>{
   2: Smb2ErrorType.notFound, // ENOENT
   5: Smb2ErrorType.io, // EIO
   9: Smb2ErrorType.connection, // EBADF (stale handle)
+  12: Smb2ErrorType.inUse, // ENOMEM
   13: Smb2ErrorType.accessDenied, // EACCES
+  16: Smb2ErrorType.inUse, // EBUSY
   17: Smb2ErrorType.alreadyExists, // EEXIST
   20: Smb2ErrorType.notADirectory, // ENOTDIR
   21: Smb2ErrorType.isADirectory, // EISDIR
   22: Smb2ErrorType.invalidParam, // EINVAL
+  23: Smb2ErrorType.inUse, // ENFILE
+  24: Smb2ErrorType.inUse, // EMFILE
   26: Smb2ErrorType.inUse, // ETXTBSY
   28: Smb2ErrorType.diskFull, // ENOSPC
+  30: Smb2ErrorType.accessDenied, // EROFS
   32: Smb2ErrorType.connection, // EPIPE
   35: Smb2ErrorType.inUse, // EDEADLK
   39: Smb2ErrorType.notEmpty, // ENOTEMPTY
@@ -271,13 +292,18 @@ const _darwinErrno = <int, Smb2ErrorType>{
   5: Smb2ErrorType.io, // EIO
   9: Smb2ErrorType.connection, // EBADF
   11: Smb2ErrorType.inUse, // EDEADLK
+  12: Smb2ErrorType.inUse, // ENOMEM
   13: Smb2ErrorType.accessDenied, // EACCES
+  16: Smb2ErrorType.inUse, // EBUSY
   17: Smb2ErrorType.alreadyExists, // EEXIST
   20: Smb2ErrorType.notADirectory, // ENOTDIR
   21: Smb2ErrorType.isADirectory, // EISDIR
   22: Smb2ErrorType.invalidParam, // EINVAL
+  23: Smb2ErrorType.inUse, // ENFILE
+  24: Smb2ErrorType.inUse, // EMFILE
   26: Smb2ErrorType.inUse, // ETXTBSY
   28: Smb2ErrorType.diskFull, // ENOSPC
+  30: Smb2ErrorType.accessDenied, // EROFS
   32: Smb2ErrorType.connection, // EPIPE
   45: Smb2ErrorType.notSupported, // ENOTSUP
   50: Smb2ErrorType.connection, // ENETDOWN
@@ -300,12 +326,17 @@ const _windowsErrno = <int, Smb2ErrorType>{
   2: Smb2ErrorType.notFound, // ENOENT
   5: Smb2ErrorType.io, // EIO
   9: Smb2ErrorType.connection, // EBADF
+  12: Smb2ErrorType.inUse, // ENOMEM
   13: Smb2ErrorType.accessDenied, // EACCES
+  16: Smb2ErrorType.inUse, // EBUSY
   17: Smb2ErrorType.alreadyExists, // EEXIST
   20: Smb2ErrorType.notADirectory, // ENOTDIR
   21: Smb2ErrorType.isADirectory, // EISDIR
   22: Smb2ErrorType.invalidParam, // EINVAL
+  23: Smb2ErrorType.inUse, // ENFILE
+  24: Smb2ErrorType.inUse, // EMFILE
   28: Smb2ErrorType.diskFull, // ENOSPC
+  30: Smb2ErrorType.accessDenied, // EROFS
   32: Smb2ErrorType.connection, // EPIPE
   36: Smb2ErrorType.inUse, // EDEADLK
   41: Smb2ErrorType.notEmpty, // ENOTEMPTY
