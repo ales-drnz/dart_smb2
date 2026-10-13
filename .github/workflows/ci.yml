@@ -235,16 +235,15 @@ jobs:
       - name: Integration tests (iOS simulator)
         if: matrix.name == 'iOS'
         working-directory: test_app
-        timeout-minutes: 20
-        # flutter drive with test_driver/, as in mpv_audio_kit: flutter test
-        # can wait forever for the app's VM service on a CI simulator.
+        timeout-minutes: 30
+        # A watchdog retries when flutter test misses the app on the
+        # simulator (flutter/flutter#181771); see the script.
         run: |
           udid="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for r,v in d.items() if "iOS" in r for x in v if x["name"].startswith("iPhone")))')"
           echo "UDID=$udid" >> "$GITHUB_ENV"
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid" -b
-          flutter drive --driver test_driver/integration_test.dart \
-            --target integration_test/smoke_test.dart -d "$udid"
+          bash ../.github/scripts/ios_integration_tests.sh "$udid"
       - name: Simulator log
         if: failure() && matrix.name == 'iOS'
         run: xcrun simctl spawn "$UDID" log show --last 15m --style compact --predicate 'process == "Runner"' | tail -200
