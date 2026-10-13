@@ -451,7 +451,7 @@ await pool.deleteFile('Backup/2026/log.bin');
 await pool.rmdir('Backup/2026');
 ```
 
-`rmdir` fails with `notEmpty` while the directory has entries, and with `notADirectory` on a file; `deleteFile` fails with `isADirectory` on a directory. Set times after the file's write handles are closed: the server refreshes the modified time on write and close.
+`rmdir` fails with `notEmpty` while the directory has entries, and with `notADirectory` on a file; `deleteFile` fails with `isADirectory` on a directory and on a link to one: remove those with `rmdir` (Windows junctions and directory symlinks), though Samba cannot remove a directory symlink over SMB2 at all. Set times after the file's write handles are closed: the server refreshes the modified time on write and close.
 
 ### 8. Cancellation
 
@@ -523,7 +523,7 @@ try {
 
 <img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/diagrams/reconnect.png" width="100%" alt="A reconnect: the worker loses the connection, the pool spawns and connects a new worker and sends the call again, and the result reaches your code">
 
-When a call fails with a network failure, the pool replaces the worker with a new connection — once, however many calls saw it fail — and repeats the call when repeating cannot change the outcome: reads, listings, metadata, writes at an offset, whole-file writes, truncates and timestamps. `mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated, because the server may have done them before the connection dropped; their error reaches you and the next call uses the new connection. Open handles are reopened on the new worker before their next call. When the new connection cannot be made, the call is repeated on another worker, and the slot tries again in the background, after 1, 2, 4 and up to 32 seconds.
+When a call fails with a network failure, the pool replaces the worker with a new connection — once, however many calls saw it fail — and repeats the call when repeating cannot change the outcome: reads, listings, metadata, writes at an offset, whole-file writes, truncates and timestamps. `mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated, because the server may have done them before the connection dropped; their error reaches you and the next call uses the new connection. Open handles are reopened on the new worker before their next call. When the new connection cannot be made, the call is repeated on another worker, and the slot tries again in the background: after 1, 2, 4 and up to 32 seconds when the network failed, every 5 minutes when the server refused the connection, so retries never lock an account out.
 
 ### 10. The synchronous client
 

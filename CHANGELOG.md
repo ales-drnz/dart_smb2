@@ -10,12 +10,12 @@ A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the change
 - `Smb2Pool.downloadToFile()` takes the destination as a `String` path and writes it atomically.
 - `Smb2Client.listShares()` is static, and `Smb2Client` methods throw `state` on a closed or foreign handle.
 - `mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated after a network failure.
-- `rmdir` of a file fails with `notADirectory` (it deleted the file), `deleteFile` of a directory with `isADirectory` (it deleted an empty one, and did nothing on one with entries), and `truncate` of a directory with `isADirectory` (it did nothing).
+- `rmdir` of a file fails with `notADirectory` (it deleted the file), `deleteFile` of a directory, or of a link to one, with `isADirectory` (it deleted an empty one, and did nothing on one with entries), and `truncate` of a directory with `isADirectory` (it did nothing).
 - `Smb2Pool.connect(workers: 0)` throws `invalidParam`.
 - `Smb2Stat` requires `accessed` and `changed`, the public types are `final`, `Smb2PoolHandle` no longer exposes `worker`, `id` and `markClosed()`, and the `Smb2File` constructor is internal.
 
 ### Added
-- `Smb2CancelToken`, taken by every call on a connected `Smb2Pool` except `closeHandle()` and `disconnect()`.
+- `Smb2CancelToken`, taken by every call on a connected `Smb2Pool` except `closeHandle()`, `disconnect()` and the deprecated `listShares()`.
 - `Smb2Exception.isNetworkFailure`, `isTransient`, `isNotFound`, `isCancelled`, `isAuthError`, `ntStatus` and `errno`.
 - `Smb2ErrorType.fromFailure()`, which `classify()` now calls.
 - `Smb2Stat.accessed`, `changed`, `attributes` and `isHidden`, and times to the microsecond.
@@ -33,8 +33,8 @@ A revision of the whole package. See [MIGRATION.md](MIGRATION.md) for the change
 - When a reconnect fails, the slot's calls go to the other workers, and the slot tries again in the background.
 - A cancelled call returns at once, also while it waits for a reconnect or a slot.
 - `disconnect()` aborts a reconnect in progress instead of waiting for its connect.
-- `closeHandle()` returns at once: the worker closes the file after the requests sent before it, so leaving a stream or a `withFile()` never waits behind a read stuck on the network.
-- A worker that dies without a call failing on it, or whose cancelled request hits a network failure, is reconnected at once; a slot that cannot reconnect retries only network failures, and a call that finds no live worker reports why the reconnect failed.
+- A stream, a download, `withFile()` or `streamWrite()` that fails or is cancelled closes its handle without waiting, so it never waits behind a read stuck on the network; one that completes waits for the close, so the file can be deleted or renamed next.
+- A worker that dies without a call failing on it, or whose cancelled request hits a network failure, is reconnected at once; a slot that cannot reconnect retries after a network failure from 1 to 32 seconds apart and after a refusal every 5 minutes, and a call that finds no live worker reports why the reconnect failed.
 - Reads reach the calling isolate in native buffers, without a copy.
 - `streamWrite()` repeats a chunk after a reconnect.
 - Paths drop leading slashes and take backslashes.

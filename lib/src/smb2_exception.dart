@@ -29,9 +29,10 @@ final class Smb2Exception implements Exception {
   /// Semantic category for programmatic handling.
   final Smb2ErrorType type;
 
-  /// The NTSTATUS the server answered this call with (for example
-  /// `0xC0000034`, OBJECT_NAME_NOT_FOUND), or null when the failure did not
-  /// come from the server or its status could not be told apart from an
+  /// The NTSTATUS of this call (for example `0xC0000034`,
+  /// OBJECT_NAME_NOT_FOUND): the server's answer, or IO_TIMEOUT, which
+  /// libsmb2 sets itself when a request times out. Null when the failure did
+  /// not come from the server or its status could not be told apart from an
   /// earlier one.
   final int? ntStatus;
 

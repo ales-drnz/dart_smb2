@@ -109,6 +109,16 @@ void main() {
     });
   });
 
+  test('a name counts whole, not as the prefix of a longer one', () {
+    // STATUS_OBJECT_NAME_NOT_FOUND is not named by
+    // STATUS_OBJECT_NAME_NOT_FOUND_EXTRA.
+    final f = facts(
+      'Open failed: STATUS_OBJECT_NAME_NOT_FOUND_EXTRA',
+      notFound,
+    );
+    expect(f.ntStatus, isNull);
+  });
+
   test('a transport failure carries neither status nor errno', () {
     final f = facts('Read from socket failed', notFound, rc: -104);
     expect(f.ntStatus, isNull);

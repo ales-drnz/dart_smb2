@@ -84,8 +84,9 @@ Some failures change type:
 - `rmdir` of a directory with entries reports `notEmpty`, and `rmdir` of a
   file `notADirectory`; they used to return without removing the
   directory, and to delete the file;
-- `deleteFile` of a directory reports `isADirectory`; it used to delete an
-  empty one and to return without doing anything on one with entries;
+- `deleteFile` of a directory, or of a link to one, reports `isADirectory`;
+  it used to delete an empty one and to return without doing anything on
+  one with entries. Remove a link to a directory with `rmdir`;
 - a server out of resources (too many open files, no memory) reports
   `inUse`, which `isTransient` covers, and a read-only share
   `accessDenied`;

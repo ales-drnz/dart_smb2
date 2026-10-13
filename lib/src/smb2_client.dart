@@ -446,7 +446,8 @@ final class Smb2Client implements Finalizable {
     }
   }
 
-  /// Deletes the file [path].
+  /// Deletes the file [path]; a directory, or a link to one, fails with
+  /// [Smb2ErrorType.isADirectory] (remove it with [rmdir]).
   void deleteFile(String path) {
     _ensureConnected();
     using((arena) {
@@ -865,7 +866,10 @@ Smb2Exception _error(
 
 /// Whether [message] names the status called [name] by nterror_to_str.
 bool _names(String message, String name) =>
-    name.contains('STATUS_') && message.contains(name);
+    name.contains('STATUS_') &&
+    RegExp(
+      '(^|[^A-Z0-9_])${RegExp.escape(name)}(\$|[^A-Z0-9_])',
+    ).hasMatch(message);
 
 Smb2Exception _invalid(String message, String? path) =>
     Smb2Exception(message, type: Smb2ErrorType.invalidParam, path: path);
