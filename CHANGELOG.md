@@ -1,3 +1,17 @@
+## [0.2.2] - 21-10-2026
+
+### Contributions
+- [@freeKC](https://github.com/freeKC): reported that a user with an empty password logged on anonymously, and proposed the fix ([#4](https://github.com/ales-drnz/dart_smb2/issues/4)).
+
+### Breaking
+- `password: ''` with a user is a logon as that user: for an account that has a password it fails with `auth`, where it logged on anonymously.
+
+### Fixed
+- A user with an empty password logs on as that user, so a server that refuses anonymous logons, such as the Freebox Server, can be reached ([#4](https://github.com/ales-drnz/dart_smb2/issues/4)). Without a user, an empty password still logs on anonymously.
+
+### Docs
+- `Smb2Client.connect`, `listShares` and `Smb2Pool.connect` describe the credentials: no user, or a null password, means an anonymous logon, not guest.
+
 ## [0.2.1] - 13-10-2026
 
 ### Docs

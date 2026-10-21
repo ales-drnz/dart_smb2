@@ -31,13 +31,19 @@ services:
       # the bind-mounted share like the host user does (1000 by default).
       UID_testuser: "${SMB2_UID:-1000}"
       GROUPS_testuser: "users"
+      # A second account whose password is empty, for the logons with
+      # `password: ''`. The image takes a smbpasswd line in place of a
+      # password: the NT hash is MD4 of the empty password. No spaces in
+      # the flags, since the image splits its environment on them, and a
+      # last-change time that is not 0, which would mean "must change".
+      ACCOUNT_nopass: "nopass:0:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:31D6CFE0D16AE931B73C59D7E0C089C0:[U]:LCT-60000000:"
 
       # Share config — full smb.conf section. The image picks up any env var
       # matching SAMBA_VOLUME_CONFIG_<name> and writes it into smb.conf.
       SAMBA_VOLUME_CONFIG_public: |
         [${SMB2_SHARE}]
             path = /shares/public
-            valid users = testuser
+            valid users = testuser nopass
             writable = yes
             read only = no
             browseable = yes

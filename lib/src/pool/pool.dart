@@ -86,6 +86,10 @@ final class Smb2Pool {
   /// five minutes: reconnects fail with it at once, and one login is tried
   /// per interval for the whole pool.
   ///
+  /// The credentials work as in [Smb2Client.connect]: without a [user], or
+  /// with a null [password], the logon is anonymous; `password: ''` logs on
+  /// to an account whose password is empty.
+  ///
   /// Throws the first worker's [Smb2Exception] when one cannot connect
   /// (the others are closed): [Smb2ErrorType.auth] for bad credentials,
   /// [Smb2ErrorType.notFound] for a share that does not exist, a network

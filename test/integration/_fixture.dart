@@ -54,6 +54,9 @@ final class TestServer {
 /// The server of this run.
 final server = TestServer.load();
 
+/// The container's account whose password is empty (docker-compose.yml).
+const emptyPasswordUser = 'nopass';
+
 /// A connected sync client.
 Smb2Client connectClient() => Smb2Client()
   ..connect(

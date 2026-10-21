@@ -113,6 +113,70 @@ void main() {
     });
   });
 
+  group('credentials', () {
+    Smb2Client connectAs(
+      String? user,
+      String? password, {
+      bool seal = false,
+      bool signing = false,
+      Smb2Version version = Smb2Version.any,
+    }) => Smb2Client()
+      ..connect(
+        host: server.host,
+        share: server.share,
+        user: user,
+        password: password,
+        seal: seal,
+        signing: signing,
+        version: version,
+      );
+
+    void listsAndDisconnects(Smb2Client c) {
+      try {
+        expect(c.listDirectory('').map((e) => e.name), contains(seedFile));
+      } finally {
+        c.disconnect();
+      }
+    }
+
+    Matcher throwsType(Smb2ErrorType type) =>
+        throwsA(isA<Smb2Exception>().having((e) => e.type, 'type', type));
+
+    test('a user with an empty password logs on as that user', () {
+      listsAndDisconnects(connectAs(emptyPasswordUser, ''));
+    });
+
+    test('an empty password gives a session key to sign and seal with', () {
+      listsAndDisconnects(connectAs(emptyPasswordUser, '', signing: true));
+      listsAndDisconnects(
+        connectAs(emptyPasswordUser, '', seal: true, version: Smb2Version.v311),
+      );
+    });
+
+    test('a user with a null password logs on anonymously', () {
+      // The share refuses anonymous sessions at the tree connect.
+      expect(
+        () => connectAs(emptyPasswordUser, null),
+        throwsType(Smb2ErrorType.accessDenied),
+      );
+    });
+
+    test('an empty password for an account that has one fails with auth', () {
+      expect(() => connectAs(server.user, ''), throwsType(Smb2ErrorType.auth));
+    });
+
+    test('no user with an empty password stays anonymous', () {
+      expect(() => connectAs('', ''), throwsType(Smb2ErrorType.accessDenied));
+      // IPC$ takes anonymous sessions: a logon as user "" would be refused.
+      final shares = Smb2Client.listShares(
+        host: server.host,
+        user: '',
+        password: '',
+      );
+      expect(shares.map((s) => s.name), contains(server.share));
+    });
+  });
+
   group('reads', () {
     test('readFile returns the whole seed', () {
       final data = client.readFile(seedFile);

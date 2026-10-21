@@ -85,6 +85,21 @@ void main() {
       );
     });
 
+    test('a user with an empty password connects every worker', () async {
+      final p = await Smb2Pool.connect(
+        host: server.host,
+        share: server.share,
+        user: emptyPasswordUser,
+        password: '',
+        workers: 2,
+      );
+      try {
+        expect(await p.exists(seedFile), isTrue);
+      } finally {
+        await p.disconnect();
+      }
+    });
+
     test('zero workers is an invalid argument', () async {
       await expectLater(
         Smb2Pool.connect(host: server.host, share: server.share, workers: 0),

@@ -123,10 +123,11 @@ final class ConnectParams {
   /// Share to connect to.
   final String share;
 
-  /// User name; empty or null for guest.
+  /// User name; empty or null for an anonymous logon.
   final String? user;
 
-  /// Password.
+  /// Password; null for an anonymous logon, `''` for an account without
+  /// one.
   final String? password;
 
   /// NT domain or workgroup.

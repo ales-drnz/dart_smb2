@@ -54,7 +54,12 @@ final class Smb2Handle {
 ///
 /// ```dart
 /// final client = Smb2Client()
-///   ..connect(host: '192.168.1.10', share: 'Music', user: 'guest');
+///   ..connect(
+///     host: '192.168.1.10',
+///     share: 'Music',
+///     user: 'alice',
+///     password: 'secret',
+///   );
 /// try {
 ///   final entries = client.listDirectory('');
 /// } finally {
@@ -100,7 +105,8 @@ final class Smb2Client implements Finalizable {
   // ─── Share enumeration ───────────────────────────────────────────────────
 
   /// Lists the shares of [host], over a connection of its own to `IPC$`
-  /// that it closes before returning. Needs no connected client.
+  /// that it closes before returning. Needs no connected client. The
+  /// credentials work as in [connect].
   static List<Smb2ShareInfo> listShares({
     required String host,
     String? user,
@@ -157,6 +163,10 @@ final class Smb2Client implements Finalizable {
   /// Paths in later calls are relative to the share root; `''` is the root
   /// itself. [timeout] bounds every request, this one included; a request
   /// that runs out of it fails with [Smb2ErrorType.timeout].
+  ///
+  /// Without a [user], or with a null [password], the logon is anonymous
+  /// and the user name is not sent. For an account whose password is
+  /// empty, pass `password: ''` with its [user].
   ///
   /// Throws [Smb2Exception] on failure.
   void connect({
@@ -743,10 +753,16 @@ Pointer<smb2_context> _newContext({
     throw const Smb2Exception('Cannot create an SMB2 context');
   }
   using((arena) {
-    if (user != null && user.isNotEmpty) {
+    final hasUser = user != null && user.isNotEmpty;
+    if (hasUser) {
       smb2_set_user(ctx, user.toNativeUtf8(allocator: arena).cast());
     }
-    if (password != null && password.isNotEmpty) {
+    // libsmb2 logs on anonymously when it has no password, whatever the
+    // user. An empty password is a real one for a named user: some servers
+    // have accounts without a password and refuse an anonymous logon.
+    // Without a user an empty password stays anonymous: a logon as user ""
+    // is refused by servers, or mapped to guest.
+    if (password != null && (password.isNotEmpty || hasUser)) {
       smb2_set_password(ctx, password.toNativeUtf8(allocator: arena).cast());
     }
     if (domain != null && domain.isNotEmpty) {
@@ -771,7 +787,8 @@ void _connectContext(
       ctx,
       host.toNativeUtf8(allocator: arena).cast(),
       share.toNativeUtf8(allocator: arena).cast(),
-      // libsmb2 treats an empty user as guest.
+      // Overrides libsmb2's default user, the local login name. Whether the
+      // logon is anonymous depends on the password; see _newContext.
       (user ?? '').toNativeUtf8(allocator: arena).cast(),
     );
     if (rc < 0) {

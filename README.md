@@ -25,7 +25,7 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.2.1
+  dart_smb2: ^0.2.2
 ```
 
 ## Platform requirements
@@ -229,7 +229,7 @@ The workers connect in parallel. When one of them cannot, the others are closed 
 
 | Argument | Default | Description |
 | :--- | :--- | :--- |
-| `user`, `password`, `domain` | none | NTLM credentials. No user means guest |
+| `user`, `password`, `domain` | none | NTLM credentials. No user, or a null password, means an anonymous logon; `password: ''` logs on to an account without a password |
 | `workers` | 4 | Isolates, each with its own connection |
 | `timeout` | 30 s | Bounds every request, the connection included |
 | `seal` | `false` | Require SMB3 encryption |
