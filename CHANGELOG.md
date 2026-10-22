@@ -1,3 +1,8 @@
+## [0.2.3] - 22-10-2026
+
+### Docs
+- The README and MIGRATION.md ask for Flutter 3.47 in an app, not 3.38: on an older Flutter, `pub get` cannot resolve the build hook's dependencies.
+
 ## [0.2.2] - 21-10-2026
 
 ### Contributions

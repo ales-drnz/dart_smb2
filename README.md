@@ -25,7 +25,7 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.2.2
+  dart_smb2: ^0.2.3
 ```
 
 ## Platform requirements
@@ -38,7 +38,7 @@ dependencies:
 | Windows | 10 | arm64, x86_64 | 238, 256 KB | Yes | - |
 | Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 259, 268 KB | Yes | - |
 
-The package needs Dart 3.10, and Flutter 3.38 in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
+The package needs Dart 3.10, and Flutter 3.47 in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
 
 ---
 

@@ -10,7 +10,7 @@ dart_smb2 is a plain Dart package. The Gradle task, the podspecs, the
 SwiftPM manifests and the CMake files are gone: a Dart build hook
 downloads the binary for each target, checks its SHA-256 and bundles it.
 
-- The package needs Dart 3.10, and Flutter 3.38 in a Flutter app.
+- The package needs Dart 3.10, and Flutter 3.47 in a Flutter app.
 - An Android app needs `minSdk` 24, which the binaries are built for: the
   hook fails the build below it.
 - The first build of each target needs network access, and so does the
