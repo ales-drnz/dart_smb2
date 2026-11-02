@@ -32,6 +32,8 @@ import 'smb2_exception.dart';
 /// // The user pressed stop:
 /// token.cancel();
 /// ```
+///
+/// {@category Errors and cancellation}
 final class Smb2CancelToken {
   final Completer<void> _cancelled = Completer<void>();
   final Set<_Listener> _listeners = {};

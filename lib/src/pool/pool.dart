@@ -45,6 +45,8 @@ export 'handle.dart' show Smb2File, Smb2PoolHandle;
 ///   await pool.disconnect();
 /// }
 /// ```
+///
+/// {@category Connection}
 final class Smb2Pool {
   final List<Slot> _slots;
   final ConnectParams _params;

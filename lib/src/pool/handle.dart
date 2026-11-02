@@ -52,6 +52,8 @@ final class Slot {
 /// and any other use throws a [Smb2Exception] of type
 /// [Smb2ErrorType.state]. A handle dropped without being closed is closed
 /// when it is garbage collected.
+///
+/// {@category Reading and writing}
 final class Smb2PoolHandle {
   /// The share-relative path the handle was opened for.
   final String path;
@@ -153,6 +155,8 @@ extension Smb2PoolHandleInternal on Smb2PoolHandle {
 }
 
 /// A file opened by [Smb2Pool.withFile], valid inside its callback.
+///
+/// {@category Reading and writing}
 final class Smb2File {
   final Smb2Pool _pool;
   final Smb2PoolHandle _handle;

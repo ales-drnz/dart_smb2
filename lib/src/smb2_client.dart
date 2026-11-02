@@ -29,6 +29,8 @@ import 'smb2_types.dart';
 /// the same client. After [Smb2Client.closeHandle] or
 /// [Smb2Client.disconnect] it is closed: closing it again does nothing, and
 /// any other use throws a [Smb2Exception] of type [Smb2ErrorType.state].
+///
+/// {@category Synchronous client}
 final class Smb2Handle {
   final Smb2Client _client;
   Pointer<smb2fh> _fh;
@@ -66,6 +68,8 @@ final class Smb2Handle {
 ///   client.disconnect();
 /// }
 /// ```
+///
+/// {@category Synchronous client}
 final class Smb2Client implements Finalizable {
   Pointer<smb2_context> _ctx = nullptr;
   final Set<Smb2Handle> _handles = {};

@@ -21,6 +21,8 @@ import 'smb2_error_type.dart';
 ///   else if (!e.isCancelled) showError(e.message);
 /// }
 /// ```
+///
+/// {@category Errors and cancellation}
 final class Smb2Exception implements Exception {
   /// Human-readable description, with libsmb2's own message when there is
   /// one.

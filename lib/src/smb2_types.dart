@@ -8,6 +8,8 @@ import 'pool/pool.dart';
 import 'smb2_client.dart';
 
 /// SMB share type constants (MS-SRVS 2.2.2.4), for [Smb2ShareInfo.type].
+///
+/// {@category Connection}
 abstract final class Smb2ShareType {
   /// Disk / folder share — the usual file-serving case.
   static const int diskTree = 0;
@@ -30,6 +32,8 @@ abstract final class Smb2ShareType {
 
 /// A share on a server, from [Smb2Pool.listSharesOn] or
 /// [Smb2Client.listShares].
+///
+/// {@category Connection}
 @immutable
 final class Smb2ShareInfo {
   /// Share name (e.g. "Documents", "Music").
@@ -78,6 +82,8 @@ final class Smb2ShareInfo {
 ///
 /// Default is [any], which lets the server pick the highest version both
 /// sides support.
+///
+/// {@category Connection}
 enum Smb2Version {
   /// Negotiate the highest version supported by both sides (default).
   any(0),
@@ -109,6 +115,8 @@ enum Smb2Version {
 }
 
 /// What a directory entry is.
+///
+/// {@category Files and directories}
 enum Smb2FileType {
   /// Regular file.
   file,
@@ -122,6 +130,8 @@ enum Smb2FileType {
 
 /// File or directory metadata, from [Smb2Client.stat] and the entries of a
 /// directory listing. Timestamps are UTC, to the microsecond.
+///
+/// {@category Files and directories}
 @immutable
 final class Smb2Stat {
   /// Whether this is a file, directory, or link.
@@ -188,6 +198,8 @@ final class Smb2Stat {
 
 /// A directory entry: its name and its metadata, which the listing returns
 /// without a request per entry.
+///
+/// {@category Files and directories}
 @immutable
 final class Smb2DirEntry {
   /// File or directory name (not a full path).
@@ -221,6 +233,8 @@ final class Smb2DirEntry {
 }
 
 /// Filesystem statistics of a share, from [Smb2Client.statvfs].
+///
+/// {@category Files and directories}
 @immutable
 final class Smb2StatVfs {
   /// Fundamental block size in bytes.

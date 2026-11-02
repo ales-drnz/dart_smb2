@@ -1,0 +1,18 @@
+dartdoc:
+  categories:
+    "Connection":
+      markdown: doc/connection.md
+    "Files and directories":
+      markdown: doc/files.md
+    "Reading and writing":
+      markdown: doc/reading_writing.md
+    "Errors and cancellation":
+      markdown: doc/errors.md
+    "Synchronous client":
+      markdown: doc/sync_client.md
+  categoryOrder:
+    - "Connection"
+    - "Files and directories"
+    - "Reading and writing"
+    - "Errors and cancellation"
+    - "Synchronous client"

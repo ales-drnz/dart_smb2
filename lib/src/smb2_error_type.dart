@@ -10,6 +10,8 @@ import 'smb2_exception.dart';
 ///
 /// [Smb2Exception] carries one, so callers can decide whether to retry,
 /// ask for credentials again, or report the error.
+///
+/// {@category Errors and cancellation}
 enum Smb2ErrorType {
   /// The connection failed or was lost: refused, reset, unreachable, a
   /// host name that does not resolve, or a session or handle the server
