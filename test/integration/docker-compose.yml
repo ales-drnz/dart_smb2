@@ -37,6 +37,11 @@ services:
       # the flags, since the image splits its environment on them, and a
       # last-change time that is not 0, which would mean "must change".
       ACCOUNT_nopass: "nopass:0:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:31D6CFE0D16AE931B73C59D7E0C089C0:[U]:LCT-60000000:"
+      # A uid of its own: the image adds nopass before testuser, and without
+      # one it takes the first free uid, 1000, which testuser asks for on a
+      # host whose user is 1000 (testuser is then never created). The share
+      # forces testuser, so this uid owns nothing.
+      UID_nopass: "61000"
 
       # Share config — full smb.conf section. The image picks up any env var
       # matching SAMBA_VOLUME_CONFIG_<name> and writes it into smb.conf.

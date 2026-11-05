@@ -1,3 +1,12 @@
+## [0.2.5] - 5-11-2026
+
+### Build
+- A logon with a password and no user no longer reads out of bounds on 32-bit Android (`armeabi-v7a`).
+- The NTLM logon no longer sends uninitialised memory to the server.
+- A request on an encrypted session is never sent in the clear.
+- A reply longer than the read asked for, or for another command, is refused.
+- Updated binaries to `libsmb2-r10` across all platforms.
+
 ## [0.2.4] - 2-11-2026
 
 ### Docs

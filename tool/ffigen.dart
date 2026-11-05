@@ -19,8 +19,7 @@ import 'dart:io';
 import 'package:ffigen/ffigen.dart';
 
 /// Calls that neither block nor touch the network, bound as leaf calls.
-/// (Not smb2_init_context: it looks up the login name through NSS and
-/// takes the context-list lock.)
+/// (Not smb2_init_context: it looks up the login name through NSS.)
 const _leaf = {
   'smb2_set_user',
   'smb2_set_password',

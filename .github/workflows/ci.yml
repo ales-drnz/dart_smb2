@@ -5,6 +5,11 @@ on:
     branches: [main, 'release/**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      libsmb2_scripts_run:
+        description: libsmb2-scripts run whose libsmb2-release artifact the jobs bundle (empty for the repository variable, else the Build found by itself)
+        type: string
+        default: ''
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -13,18 +18,64 @@ concurrency:
 permissions:
   contents: read
 
-# Until a libsmb2 release is published, set the repository variable
-# LIBSMB2_SCRIPTS_RUN to the libsmb2-scripts run that built it: the jobs
-# that bundle libsmb2 then take that run's libraries instead of the pinned
-# release (see .github/actions/libsmb2-from-run). It needs the secret
-# LIBSMB2_SCRIPTS_TOKEN, a token with Actions read access on
-# libsmb2-scripts. Unset the variable once the release is out: the run's
-# artifacts expire after 90 days, and main would keep testing them instead
-# of the release.
-env:
-  LIBSMB2_SCRIPTS_RUN: ${{ vars.LIBSMB2_SCRIPTS_RUN }}
+# The jobs that bundle libsmb2 take the release pinned in hook/build.dart,
+# libsmb2-rN. While it is not published, the libsmb2 job finds the
+# libsmb2-scripts Build that made it, once for every job: the latest
+# successful run of build.yml started by a push to a release/ branch whose
+# scripts/shared/_versions.sh builds rN (.github/scripts/
+# resolve_libsmb2_run.sh). The jobs then take that run's libraries instead
+# of the pinned release (see .github/actions/libsmb2-from-run). Once
+# libsmb2-rN is out the pinned release serves. Nothing is set by hand:
+# pin the release with tool/update_libsmb2.sh rN <the run's manifest.json>
+# before publishing it.
+#
+# Reading the Builds and their artifacts needs the secret
+# LIBSMB2_SCRIPTS_TOKEN: a fine-grained token with Actions read access on
+# ales-drnz/libsmb2-scripts only, renewed before the expiry date chosen
+# when it was made. The libsmb2 job checks the token, the run and the
+# pinned release before anything else starts (.github/scripts/preflight.sh).
+#
+# To force a Build, the input libsmb2_scripts_run of a run started by hand
+# names it for that run, and the repository variable LIBSMB2_SCRIPTS_RUN
+# for every run while it is set (the input wins). Neither is needed
+# otherwise: leave the variable unset, since run artifacts expire after 90
+# days.
 
 jobs:
+  # The libsmb2-scripts Build the jobs bundle, if the pinned release is not
+  # published: found once here, for every job, and checked before anything
+  # else starts.
+  libsmb2:
+    name: libsmb2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      # The libsmb2-scripts run the jobs bundle, empty for the pinned release.
+      run: ${{ steps.resolve.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The scripts below, against a fake gh (test/ci).
+      - name: CI script tests
+        run: for t in test/ci/*_test.sh; do bash "$t"; done
+      - name: libsmb2-scripts run
+        id: resolve
+        env:
+          LIBSMB2_SCRIPTS_RUN: ${{ inputs.libsmb2_scripts_run || vars.LIBSMB2_SCRIPTS_RUN }}
+          GH_TOKEN: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
+          RELEASE_TOKEN: ${{ github.token }}
+        run: |
+          run="$(.github/scripts/resolve_libsmb2_run.sh)"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+      # The libsmb2 the jobs will bundle must be there: one error here
+      # instead of each job failing on its own, minutes in.
+      - name: Preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LIBSMB2_SCRIPTS_RUN: ${{ steps.resolve.outputs.run }}
+          LIBSMB2_SCRIPTS_TOKEN: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
+          FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: .github/scripts/preflight.sh
+
   analyze:
     name: Analyze (Dart ${{ matrix.sdk }})
     runs-on: ubuntu-24.04
@@ -56,6 +107,7 @@ jobs:
   # the function names tool/bindings_drift.dart checks.
   bindings:
     name: Bindings
+    needs: libsmb2
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -75,7 +127,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libclang-dev
       - uses: ./.github/actions/libsmb2-from-run
         with:
-          run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
+          run-id: ${{ needs.libsmb2.outputs.run }}
           token: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
           pubspecs: pubspec.yaml
       - run: dart pub get
@@ -87,6 +139,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.os }}, Dart ${{ matrix.sdk }})
+    needs: libsmb2
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -107,7 +160,7 @@ jobs:
           sdk: ${{ matrix.sdk }}
       - uses: ./.github/actions/libsmb2-from-run
         with:
-          run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
+          run-id: ${{ needs.libsmb2.outputs.run }}
           token: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
           pubspecs: pubspec.yaml
       - name: Keep core dumps
@@ -136,6 +189,7 @@ jobs:
   # The suites under test/integration against a real Samba in Docker.
   integration:
     name: Integration (Samba)
+    needs: libsmb2
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -143,7 +197,7 @@ jobs:
       - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
       - uses: ./.github/actions/libsmb2-from-run
         with:
-          run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
+          run-id: ${{ needs.libsmb2.outputs.run }}
           token: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
           pubspecs: pubspec.yaml
       - name: Start Samba and seed the share
@@ -162,6 +216,7 @@ jobs:
   # so they and the iOS simulator run the offline group.
   device:
     name: Device ${{ matrix.name }}
+    needs: libsmb2
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -193,9 +248,10 @@ jobs:
           cache: true
       - uses: ./.github/actions/libsmb2-from-run
         with:
-          run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
+          run-id: ${{ needs.libsmb2.outputs.run }}
           token: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
-          pubspecs: test_app/pubspec.yaml
+          # The package's own too: the Samba bootstrap runs from its root.
+          pubspecs: pubspec.yaml test_app/pubspec.yaml
       - name: Start Samba and seed the share
         if: matrix.server
         run: |
@@ -260,6 +316,7 @@ jobs:
   # under the package's own name.
   build:
     name: Build ${{ matrix.name }}
+    needs: libsmb2
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -329,7 +386,7 @@ jobs:
           rm -rf test
       - uses: ./.github/actions/libsmb2-from-run
         with:
-          run-id: ${{ env.LIBSMB2_SCRIPTS_RUN }}
+          run-id: ${{ needs.libsmb2.outputs.run }}
           token: ${{ secrets.LIBSMB2_SCRIPTS_TOKEN }}
           pubspecs: ${{ runner.temp }}/app/pubspec.yaml
       - name: Build

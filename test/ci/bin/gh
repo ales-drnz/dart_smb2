@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Copyright © 2026 & onwards, Alessandro Di Ronza <ales.drnz@gmail.com>.
+# All rights reserved.
+# Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
+#
+# A stand-in for the GitHub CLI in the CI script tests. It answers only
+# `gh api <path> [--jq <filter>]`, from fixtures under $FAKE_GH:
+#   run/<id>.json       a workflow run of libsmb2-scripts (404 by default)
+#   release/<tag>.json  a release (404 by default)
+#   builds.json         the build.yml runs of libsmb2-scripts, a JSON array
+#                       newest first (none by default); branch=, event=,
+#                       status= and per_page= in the query filter them as
+#                       GitHub does
+#   versions/<sha>      the release (r10) scripts/shared/_versions.sh of
+#                       libsmb2-scripts builds at that commit, served
+#                       base64-encoded as the contents API does (404 when
+#                       missing)
+# A file $FAKE_GH/down fails every call the way a network error does, and
+# a token listed in $FAKE_GH/expired is refused with a 401. Like gh, an
+# HTTP error writes its JSON body to stdout and "gh: ... (HTTP n)" to
+# stderr. Each call is logged to $FAKE_GH/calls as "<GH_TOKEN> <args>".
+set -euo pipefail
+
+root="${FAKE_GH:?FAKE_GH is not set}"
+printf '%s %s\n' "${GH_TOKEN:-}" "$*" >> "$root/calls"
+
+fail() { # status, message
+  printf '{"message":"%s","status":"%s"}\n' "$2" "$1"
+  echo "gh: $2 (HTTP $1)" >&2
+  exit 1
+}
+
+if [[ -e "$root/down" ]]; then
+  echo "error connecting to api.github.com" >&2
+  exit 1
+fi
+if [[ "${1:-}" != api ]]; then
+  echo "fake gh: unexpected call: $*" >&2
+  exit 99
+fi
+shift
+path=""
+filter=""
+while (( $# )); do
+  case "$1" in
+    --jq) filter="$2"; shift 2 ;;
+    -*) echo "fake gh: unexpected flag $1" >&2; exit 99 ;;
+    *) path="$1"; shift ;;
+  esac
+done
+
+if [[ -n "${GH_TOKEN:-}" && -f "$root/expired" ]] &&
+  grep -qxF -- "$GH_TOKEN" "$root/expired"; then
+  fail 401 "Bad credentials"
+fi
+
+query="${path#*\?}"
+[[ "$query" == "$path" ]] && query=""
+param() { sed -n "s/.*\(^\|&\)$1=\([^&]*\).*/\2/p" <<<"$query"; }
+
+case "${path%%\?*}" in
+  repos/*/actions/workflows/build.yml/runs)
+    builds='[]'
+    [[ -f "$root/builds.json" ]] && builds="$(cat "$root/builds.json")"
+    body="$(jq --arg branch "$(param branch)" --arg event "$(param event)" \
+      --arg status "$(param status)" --arg per_page "$(param per_page)" '
+      map(select(($branch == "" or .head_branch == $branch)
+        and ($event == "" or .event == $event)
+        and ($status == "" or .status == $status or .conclusion == $status)))
+      | {total_count: length,
+         workflow_runs: .[:(if $per_page == "" then 30 else ($per_page | tonumber) end)]}
+    ' <<<"$builds")"
+    ;;
+  repos/*/contents/scripts/shared/_versions.sh)
+    file="$root/versions/$(param ref)"
+    [[ -f "$file" ]] || fail 404 "Not Found"
+    # base64 wraps its lines at 76 characters, as the contents API does.
+    content="$(printf 'export LIBSMB2_COMMIT="${LIBSMB2_COMMIT:-0123456789abcdef0123456789abcdef01234567}"\nexport LIBSMB2_RELEASE="${LIBSMB2_RELEASE:-%s}"\n' \
+      "$(cat "$file")" | base64)"
+    body="$(jq -n --arg c "$content" '{encoding: "base64", content: ($c + "\n")}')"
+    ;;
+  repos/*/actions/runs/*)
+    file="$root/run/${path##*/}.json"
+    [[ -f "$file" ]] || fail 404 "Not Found"
+    body="$(cat "$file")"
+    ;;
+  repos/*/releases/tags/*)
+    file="$root/release/${path##*/}.json"
+    [[ -f "$file" ]] || fail 404 "Not Found"
+    body="$(cat "$file")"
+    ;;
+  *)
+    echo "fake gh: unexpected path: $path" >&2
+    exit 99
+    ;;
+esac
+
+if [[ -n "$filter" ]]; then
+  jq -r "$filter" <<<"$body"
+else
+  printf '%s\n' "$body"
+fi

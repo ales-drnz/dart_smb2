@@ -43,10 +43,11 @@ void main() {
   test(
     'contexts created in parallel isolates do not corrupt each other',
     () async {
-      // Exercises the active_contexts lock patch: every isolate creates and
-      // destroys contexts at the same time. Without the lock (libsmb2-r8)
-      // the list is corrupted within a few thousand rounds, and the run
-      // crashes or hangs.
+      // Every isolate creates and destroys contexts at the same time. In
+      // libsmb2-r8 every context went on one global list, unlocked, which
+      // was corrupted within a few thousand rounds (the run crashed or
+      // hung); r9 locked it, and since r10 client contexts stay off it
+      // (upstream 565460d).
       await Future.wait([
         for (var i = 0; i < 8; i++)
           Isolate.run(() {

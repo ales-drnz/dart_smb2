@@ -21,7 +21,7 @@
 // A single file is bundled for every target, so it only suits a build for
 // one target and architecture. Local files are bundled as they are, without
 // a checksum, and must be builds of the pinned libsmb2 release or of one
-// with the same ABI (smb2_stat_64's layout, the context-list lock): an
+// with the same ABI (smb2_stat_64's layout, the patched-in smb2_utimes): an
 // older libsmb2 loads, but reads stat fields wrong.
 
 import 'dart:io';
@@ -30,7 +30,7 @@ import 'package:code_assets/code_assets.dart';
 import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 
-const _release = 'libsmb2-r9';
+const _release = 'libsmb2-r10';
 
 /// The Android API level the release's libraries are built for.
 const _androidMinApi = 24;
@@ -41,23 +41,23 @@ const _baseUrl =
 /// (tool/update_libsmb2.sh writes this table).
 const _sha256 = <String, String>{
   'libsmb2_android-arm64-v8a.so':
-      'd9af2446788f5eb298065312fcb21b11ebd7af83510bbfb0c09d8a6075bb2cf2',
+      'af27ac23a6c25843dbd3ae47023f1131b9593344125238374ed5e5577e33d73e',
   'libsmb2_android-armeabi-v7a.so':
-      '54d3e5c85fe824f426da21028500a825d1ee4ae7dd46a2cfc8e74f2e4e603d36',
+      '9074910ca1f1bc347f3b65f1a92d6b7f77ec70a9280918e4f7f22ea2f707612e',
   'libsmb2_android-x86_64.so':
-      'e740406fb7e97c2b6aa1eb65864b348a9b720b07c1ff90b75e6e5be12beee205',
+      '5db4be4402f379f6091f3710d7230de1bbba54c8360054930e915a418cbbf01f',
   'libsmb2_ios.xcframework.zip':
-      'a1f0b15bf0f173165e36abcfcea3b944f469fc2c7e3bd2b6d3d16df7a6c38f63',
+      'f7e636ed850a8da3d7291ea75195eabde961772bfb8a43b8a06957fb9e1c196d',
   'libsmb2_linux-aarch64.so':
-      'def2a4a9e74f7c5722007e4ef65a2be1f7ff84e49ff13932a344182c9a67718b',
+      'ed0b1858e97f74b117206a01aa2fc1be70c45027bb7fa92702ab4eee09e9aa23',
   'libsmb2_linux-x86_64.so':
-      'b4df2a237b72f50630deade0f3937cdceba4f34efca98126268242fc4c1e99dc',
+      '4612ed4499f4c066d0db295679469c62545c6252849bfa61eb5f45ec1bbd3577',
   'libsmb2_macos.xcframework.zip':
-      '922defa3509e550d32d66d7e8f84ef95ddf53fb9bb96a8ff85e01537765129e6',
+      '8eb57491aba4108e19646c005227cac39382585ae27c2dfee5627fe02ce1028c',
   'libsmb2_windows-arm64.dll':
-      '48805c5d5af757cb8feb975d21cf3c7388727a0607872504d983aaac940b8a84',
+      '3ce1899948bdc16108d18669ca3d4c7428cfa31b7b9efab72a4dff1d40cf7819',
   'libsmb2_windows-x86_64.dll':
-      '62fa825bfb67354c66af9a6be0055506f8c10c16ba97c333d64cdffbec2e046f',
+      'e0aba8b2feb469b053abbfa6c305b362fee7a88c13edcddddf430d33a920377c',
 };
 
 void main(List<String> args) async {
