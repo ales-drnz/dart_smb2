@@ -33,8 +33,8 @@ dependencies:
 | Platform  | Minimum | Architecture | Size | Device | Emulator |
 | :--- | :--- | :--- | :---: | :---: | :---:
 | Android | 7.0 (SDK 24) | arm64-v8a, armeabi-v7a, x86_64 | 2.4, 1.8, 3.3 MB | Yes | Yes |
-| iOS | 13.0 | arm64, x86_64 | TBD | Yes | Yes |
-| macOS | 10.15 | arm64, x86_64 | TBD | Yes | - |
+| iOS | 13.0 | arm64, x86_64 | 1.3, 2.3 MB | Yes | Yes |
+| macOS | 10.15 | arm64, x86_64 | 1.3, 2.3 MB | Yes | - |
 | Windows | 10 | arm64, x86_64 | 1.7, 2.9 MB | Yes | - |
 | Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 2.6, 3.5 MB | Yes | - |
 

@@ -37,10 +37,3 @@ dev_dependencies:
   ffigen: ^23.0.0
   lints: ^6.1.0
   test: ^1.26.0
-
-
-# LOCAL-ONLY (remove before publishing): libsmb2-r11 is not published yet.
-hooks:
-  user_defines:
-    dart_smb2:
-      libsmb2: ../libsmb2-scripts/release_builds
