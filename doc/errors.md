@@ -70,6 +70,6 @@ try {
 
 When a call fails with a network failure, the pool replaces the worker with a new connection. It does so once, however many calls saw it fail, and repeats the call when repeating cannot change the outcome: reads, listings, metadata, writes at an offset, whole-file writes, truncates and timestamps.
 
-`mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated, because the server may have done them before the connection dropped. Their error reaches you, and the next call uses the new connection.
+`mkdir`, `rmdir`, `deleteFile`, `rename`, `link` and `symlink` are not repeated, because the server may have done them before the connection dropped. Their error reaches you, and the next call uses the new connection. The recursive `mkdir` and `rmdir` are repeated: a directory already made, or an entry already gone, is not a failure for them.
 
 Open handles are reopened on the new worker before their next call. While a worker cannot reconnect, the others take its calls and it keeps trying in the background. After a refused login it tries once every 5 minutes.

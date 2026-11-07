@@ -30,7 +30,7 @@ import 'package:code_assets/code_assets.dart';
 import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 
-const _release = 'libsmb2-r10';
+const _release = 'libsmb2-r11';
 
 /// The Android API level the release's libraries are built for.
 const _androidMinApi = 24;
@@ -38,26 +38,18 @@ const _baseUrl =
     'https://github.com/ales-drnz/dart_smb2/releases/download/$_release';
 
 /// SHA-256 of every release asset, from the release's manifest.json
-/// (tool/update_libsmb2.sh writes this table).
+/// (tool/update_libsmb2.sh writes this table). An empty entry is a release
+/// not published yet: the hook then needs hooks.user_defines.dart_smb2.libsmb2.
 const _sha256 = <String, String>{
-  'libsmb2_android-arm64-v8a.so':
-      'af27ac23a6c25843dbd3ae47023f1131b9593344125238374ed5e5577e33d73e',
-  'libsmb2_android-armeabi-v7a.so':
-      '9074910ca1f1bc347f3b65f1a92d6b7f77ec70a9280918e4f7f22ea2f707612e',
-  'libsmb2_android-x86_64.so':
-      '5db4be4402f379f6091f3710d7230de1bbba54c8360054930e915a418cbbf01f',
-  'libsmb2_ios.xcframework.zip':
-      'f7e636ed850a8da3d7291ea75195eabde961772bfb8a43b8a06957fb9e1c196d',
-  'libsmb2_linux-aarch64.so':
-      'ed0b1858e97f74b117206a01aa2fc1be70c45027bb7fa92702ab4eee09e9aa23',
-  'libsmb2_linux-x86_64.so':
-      '4612ed4499f4c066d0db295679469c62545c6252849bfa61eb5f45ec1bbd3577',
-  'libsmb2_macos.xcframework.zip':
-      '8eb57491aba4108e19646c005227cac39382585ae27c2dfee5627fe02ce1028c',
-  'libsmb2_windows-arm64.dll':
-      '3ce1899948bdc16108d18669ca3d4c7428cfa31b7b9efab72a4dff1d40cf7819',
-  'libsmb2_windows-x86_64.dll':
-      'e0aba8b2feb469b053abbfa6c305b362fee7a88c13edcddddf430d33a920377c',
+  'libsmb2_android-arm64-v8a.so': '',
+  'libsmb2_android-armeabi-v7a.so': '',
+  'libsmb2_android-x86_64.so': '',
+  'libsmb2_ios.xcframework.zip': '',
+  'libsmb2_linux-aarch64.so': '',
+  'libsmb2_linux-x86_64.so': '',
+  'libsmb2_macos.xcframework.zip': '',
+  'libsmb2_windows-arm64.dll': '',
+  'libsmb2_windows-x86_64.dll': '',
 };
 
 void main(List<String> args) async {

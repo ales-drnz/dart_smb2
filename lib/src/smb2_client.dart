@@ -17,6 +17,7 @@ import 'package:ffi/ffi.dart';
 import 'package:meta/meta.dart';
 
 import 'ffi/libsmb2.g.dart';
+import 'ffi/poll.dart';
 import 'pool/pool.dart';
 import 'smb2_error_type.dart';
 import 'smb2_exception.dart';
@@ -42,10 +43,6 @@ final class Smb2Handle {
 
   /// Whether the handle has been closed.
   bool get isClosed => _fh == nullptr;
-
-  /// Whether the handle is still open.
-  @Deprecated('Use !isClosed. Will be removed in 0.3.0.')
-  bool get isValid => !isClosed;
 }
 
 /// SMB2/3 client on libsmb2's synchronous API.
@@ -74,6 +71,16 @@ final class Smb2Client implements Finalizable {
   Pointer<smb2_context> _ctx = nullptr;
   final Set<Smb2Handle> _handles = {};
 
+  /// The request timeout in whole seconds, as libsmb2 counts it (0: none).
+  int _timeoutSeconds = 0;
+
+  /// The watchers by id, and the callback libsmb2 calls with their
+  /// notifications: created by the first [watch], closed by [disconnect],
+  /// after the context that may still call it is gone.
+  final Map<int, Smb2Watcher> _watchers = {};
+  NativeCallable<_NotifyCallback>? _notify;
+  int _nextWatcher = 1;
+
   /// Frees the context of a client dropped without [disconnect]. No logoff
   /// is sent, so the server keeps the session until it times out.
   static final _finalizer = NativeFinalizer(
@@ -84,10 +91,6 @@ final class Smb2Client implements Finalizable {
 
   /// Creates a client that is not connected yet.
   Smb2Client();
-
-  /// Same as [Smb2Client.new].
-  @Deprecated('Use Smb2Client(). Will be removed in 0.3.0.')
-  factory Smb2Client.open() => Smb2Client();
 
   /// Whether the client is connected to a share.
   bool get isConnected => _ctx != nullptr;
@@ -117,15 +120,12 @@ final class Smb2Client implements Finalizable {
     String? password,
     String? domain,
     Duration timeout = const Duration(seconds: 30),
-    @Deprecated('Use timeout. Will be removed in 0.3.0.') int? timeoutSeconds,
   }) {
     final ctx = _newContext(
       user: user,
       password: password,
       domain: domain,
-      timeout: timeoutSeconds != null
-          ? Duration(seconds: timeoutSeconds)
-          : timeout,
+      timeout: timeout,
     );
     try {
       _connectContext(ctx, host: host, share: r'IPC$', user: user);
@@ -180,7 +180,6 @@ final class Smb2Client implements Finalizable {
     String? password,
     String? domain,
     Duration timeout = const Duration(seconds: 30),
-    @Deprecated('Use timeout. Will be removed in 0.3.0.') int? timeoutSeconds,
     bool seal = false,
     bool signing = false,
     Smb2Version version = Smb2Version.any,
@@ -190,9 +189,7 @@ final class Smb2Client implements Finalizable {
       user: user,
       password: password,
       domain: domain,
-      timeout: timeoutSeconds != null
-          ? Duration(seconds: timeoutSeconds)
-          : timeout,
+      timeout: timeout,
     );
     try {
       if (seal) smb2_set_seal(ctx, 1);
@@ -206,6 +203,7 @@ final class Smb2Client implements Finalizable {
       rethrow;
     }
     _ctx = ctx;
+    _timeoutSeconds = _seconds(timeout);
     _finalizer.attach(this, ctx.cast(), detach: this);
   }
 
@@ -213,6 +211,9 @@ final class Smb2Client implements Finalizable {
   /// nothing when not connected.
   void disconnect() {
     if (_ctx == nullptr) return;
+    for (final w in _watchers.values.toList()) {
+      w.close();
+    }
     for (final h in _handles) {
       smb2_close(_ctx, h._fh);
       h._fh = nullptr;
@@ -220,8 +221,12 @@ final class Smb2Client implements Finalizable {
     _handles.clear();
     _finalizer.detach(this);
     smb2_disconnect_share(_ctx);
+    // Calls the callbacks of requests still pending, a watch's included:
+    // the notify callback must outlive it.
     smb2_destroy_context(_ctx);
     _ctx = nullptr;
+    _notify?.close();
+    _notify = null;
   }
 
   /// Sends a keepalive echo. Returns when the connection is healthy;
@@ -474,13 +479,70 @@ final class Smb2Client implements Finalizable {
   }
 
   /// Renames or moves [oldPath] to [newPath].
-  void rename(String oldPath, String newPath) {
+  ///
+  /// When [newPath] exists the rename fails with
+  /// [Smb2ErrorType.alreadyExists], unless [overwrite] is set: then a file
+  /// at [newPath] is replaced in the same step, so there is never a moment
+  /// without one. A directory at [newPath], or a file another client holds
+  /// open, is not replaced even then ([Smb2ErrorType.accessDenied] or
+  /// [Smb2ErrorType.inUse]).
+  void rename(String oldPath, String newPath, {bool overwrite = false}) {
     _ensureConnected();
     using((arena) {
       _check(
-        smb2_rename(_ctx, _path(oldPath, arena), _path(newPath, arena)),
+        smb2_rename2(
+          _ctx,
+          _path(oldPath, arena),
+          _path(newPath, arena),
+          overwrite ? SMB2_RENAME_REPLACE_IF_EXISTS : 0,
+        ),
         'Rename failed',
         path: oldPath,
+      );
+    });
+  }
+
+  /// Creates [newPath] as a hard link to the file [existingPath]: one file
+  /// under two names, on the same share. Fails with
+  /// [Smb2ErrorType.alreadyExists] when [newPath] exists, and on a server
+  /// or file system without hard links with [Smb2ErrorType.notSupported].
+  void link(String existingPath, String newPath) {
+    _ensureConnected();
+    using((arena) {
+      _check(
+        smb2_link(_ctx, _path(existingPath, arena), _path(newPath, arena)),
+        'Link failed',
+        path: newPath,
+      );
+    });
+  }
+
+  /// Creates a symbolic link at [linkPath] that points at [target].
+  ///
+  /// [target] is stored as given: a path relative to the link's directory,
+  /// or, when it starts with a separator or a drive letter, an absolute
+  /// path on the server. Set [directory] for a link to a directory, which
+  /// Windows types apart from a link to a file.
+  ///
+  /// Windows servers allow it only to accounts that may create symbolic
+  /// links (administrators by default); Samba stores the link only on a
+  /// share that allows it. Elsewhere it fails with
+  /// [Smb2ErrorType.accessDenied] or [Smb2ErrorType.notSupported].
+  void symlink(String target, String linkPath, {bool directory = false}) {
+    _ensureConnected();
+    if (target.isEmpty || target.contains('\u0000')) {
+      throw _invalid('The link target is empty or contains NUL', linkPath);
+    }
+    using((arena) {
+      _check(
+        smb2_symlink(
+          _ctx,
+          target.toNativeUtf8(allocator: arena).cast(),
+          _path(linkPath, arena),
+          directory ? SMB2_SYMLINK_DIRECTORY : 0,
+        ),
+        'Symlink failed',
+        path: linkPath,
       );
     });
   }
@@ -577,35 +639,126 @@ final class Smb2Client implements Finalizable {
     if (_ctx != nullptr) smb2_close(_ctx, fh);
   }
 
-  /// Same as [openFile].
-  @Deprecated('Use openFile. Will be removed in 0.3.0.')
-  Smb2Handle openFileHandle(String path) => openFile(path);
+  // ─── Change notification ─────────────────────────────────────────────────
 
-  /// Same as [openFileWrite].
-  @Deprecated('Use openFileWrite. Will be removed in 0.3.0.')
-  Smb2Handle openFileHandleWrite(String path) => openFileWrite(path);
+  /// Watches the directory [path] for changes, and returns the
+  /// [Smb2Watcher] that reports them: call [Smb2Watcher.next] to wait for
+  /// the next ones, and [Smb2Watcher.close] when done.
+  ///
+  /// The server reports the changes in [filter] (a mask of
+  /// [Smb2ChangeFilter] bits) to the entries of [path], and with
+  /// [recursive] to everything below it. Changes are kept from the moment
+  /// the watch starts, so none is lost between two calls of
+  /// [Smb2Watcher.next]; when the server keeps more than it can report it
+  /// sends a [Smb2ChangeAction.overflow] event instead.
+  ///
+  /// The other calls of the client go on while it watches, and collect the
+  /// notifications that arrive meanwhile. The directory stays open: it
+  /// cannot be renamed or removed until the watcher is closed. Once a client
+  /// has watched, only [disconnect] frees its connection, not the garbage
+  /// collector.
+  ///
+  /// Fails with [Smb2ErrorType.notADirectory] for a file, and with
+  /// [Smb2ErrorType.notFound] for a path that does not exist.
+  Smb2Watcher watch(
+    String path, {
+    bool recursive = false,
+    int filter = Smb2ChangeFilter.defaults,
+  }) {
+    _ensureConnected();
+    if (filter <= 0 || filter > Smb2ChangeFilter.all) {
+      throw _invalid('filter must be a mask of Smb2ChangeFilter bits', path);
+    }
+    final fh = using(
+      (arena) => smb2_open(_ctx, _path(path, arena), _flags.directory),
+    );
+    if (fh == nullptr) throw _error(_ctx, 'Watch failed', path: path);
+    final watcher = Smb2Watcher._(
+      this,
+      _nextWatcher++,
+      fh,
+      path,
+      recursive ? SMB2_CHANGE_NOTIFY_WATCH_TREE : 0,
+      filter,
+    );
+    _notify ??= NativeCallable<_NotifyCallback>.isolateLocal(_onNotify)
+      ..keepIsolateAlive = false;
+    _watchers[watcher._id] = watcher;
+    try {
+      _arm(watcher);
+    } catch (_) {
+      _watchers.remove(watcher._id);
+      smb2_close(_ctx, fh);
+      watcher._fh = nullptr;
+      rethrow;
+    }
+    return watcher;
+  }
 
-  /// Same as [readFromHandle].
-  @Deprecated('Use readFromHandle. Will be removed in 0.3.0.')
-  Uint8List readHandle(
-    Smb2Handle handle, {
-    int offset = 0,
-    required int length,
-  }) => readFromHandle(handle, offset: offset, length: length);
+  /// Sends a CHANGE_NOTIFY for [w]. The request waits on the server until
+  /// something changes, so it is queued without libsmb2's timeout, which
+  /// would otherwise end it; the other requests keep theirs.
+  void _arm(Smb2Watcher w) {
+    smb2_set_timeout(_ctx, 0);
+    final int rc;
+    try {
+      rc = smb2_notify_change_filehandle_async(
+        _ctx,
+        w._fh,
+        w._flags,
+        w._filter,
+        0,
+        _notify!.nativeFunction,
+        Pointer<Void>.fromAddress(w._id),
+      );
+    } finally {
+      smb2_set_timeout(_ctx, _timeoutSeconds);
+    }
+    if (rc < 0) throw _error(_ctx, 'Watch failed', rc: rc, path: w.path);
+  }
 
-  /// Same as [writeToHandle].
-  @Deprecated('Use writeToHandle. Will be removed in 0.3.0.')
-  void writeHandle(Smb2Handle handle, Uint8List data, {int offset = 0}) =>
-      writeToHandle(handle, data, offset: offset);
-
-  /// Same as [fsyncHandle].
-  @Deprecated('Use fsyncHandle. Will be removed in 0.3.0.')
-  void fsync(Smb2Handle handle) => fsyncHandle(handle);
-
-  /// Same as [ftruncateHandle].
-  @Deprecated('Use ftruncateHandle. Will be removed in 0.3.0.')
-  void ftruncate(Smb2Handle handle, int length) =>
-      ftruncateHandle(handle, length);
+  /// libsmb2's callback for a CHANGE_NOTIFY reply. Runs inside
+  /// smb2_service() or a sync call, on this isolate's thread. [status] is
+  /// 0, or the NT status of a failed reply (positive for the informational
+  /// NOTIFY_ENUM_DIR and NOTIFY_CLEANUP).
+  void _onNotify(
+    Pointer<smb2_context> ctx,
+    int status,
+    Pointer<Void> data,
+    Pointer<Void> id,
+  ) {
+    final list = data.cast<smb2_file_notify_change_information>();
+    final w = _watchers[id.address];
+    try {
+      if (w == null || w.isClosed) return;
+      if (status == _statusNotifyEnumDir) {
+        w._events.add(Smb2ChangeEvent(Smb2ChangeAction.overflow, w._base));
+      } else if (status != 0 || list == nullptr) {
+        w._failure = _notifyError(ctx, status, w.path);
+        return;
+      } else {
+        for (var p = list; p != nullptr; p = p.ref.next) {
+          final name = p.ref.name;
+          w._events.add(
+            name == nullptr
+                // An empty reply: the server dropped what it had.
+                ? Smb2ChangeEvent(Smb2ChangeAction.overflow, w._base)
+                : Smb2ChangeEvent(
+                    Smb2ChangeAction.fromValue(p.ref.action),
+                    changePath(w._base, _string(name)),
+                  ),
+          );
+        }
+      }
+      try {
+        _arm(w);
+      } on Smb2Exception catch (e) {
+        w._failure = e;
+      }
+    } finally {
+      if (list != nullptr) free_smb2_file_notify_change_information(ctx, list);
+    }
+  }
 
   // ─── Native buffers (for the pool's workers) ──────────────────────────────
 
@@ -744,6 +897,136 @@ final class Smb2Client implements Finalizable {
   }
 }
 
+typedef _NotifyCallback =
+    Void Function(Pointer<smb2_context>, Int, Pointer<Void>, Pointer<Void>);
+
+/// STATUS_NOTIFY_ENUM_DIR: more changes than the reply could hold.
+const int _statusNotifyEnumDir = 0x0000010C;
+
+/// A watch on a directory, from [Smb2Client.watch].
+///
+/// Pull its changes with [next], on the isolate of its client, and [close]
+/// it when done. [Smb2Pool.watch] runs one in an isolate of its own and
+/// delivers its changes as a stream.
+///
+/// {@category Synchronous client}
+final class Smb2Watcher {
+  final Smb2Client _client;
+  final int _id;
+  Pointer<smb2fh> _fh;
+  final int _flags;
+  final int _filter;
+  final List<Smb2ChangeEvent> _events = [];
+  Smb2Exception? _failure;
+
+  /// The share-relative path of the watched directory.
+  final String path;
+
+  Smb2Watcher._(
+    this._client,
+    this._id,
+    this._fh,
+    this.path,
+    this._flags,
+    this._filter,
+  );
+
+  String get _base => changePath(path, '');
+
+  /// Whether [close] was called, or the watch failed.
+  bool get isClosed => _fh == nullptr;
+
+  /// The changes reported since the last call, in the order the server
+  /// sent them; when there are none yet, waits for the next ones.
+  ///
+  /// With a [timeout] it waits at most that long and returns an empty list
+  /// when nothing changed; without one it waits until something does. The
+  /// wait does not count against the client's request timeout.
+  ///
+  /// Throws the failure that ended the watch (the directory was removed,
+  /// the connection was lost: [Smb2Exception.isNetworkFailure]) once the
+  /// changes before it are returned; the watcher is closed then. Throws
+  /// [Smb2ErrorType.state] once closed.
+  List<Smb2ChangeEvent> next({Duration? timeout}) {
+    final clock = Stopwatch()..start();
+    while (true) {
+      if (_events.isNotEmpty) {
+        final out = List<Smb2ChangeEvent>.of(_events);
+        _events.clear();
+        return out;
+      }
+      final error = _failure;
+      if (error != null) {
+        close();
+        throw error;
+      }
+      if (isClosed) {
+        throw Smb2Exception(
+          'The watcher is closed',
+          type: Smb2ErrorType.state,
+          path: path,
+        );
+      }
+      _client._ensureConnected();
+      var wait = -1;
+      if (timeout != null) {
+        final left = timeout - clock.elapsed;
+        if (left <= Duration.zero) return const [];
+        wait = left.inMilliseconds + (left.inMicroseconds % 1000 > 0 ? 1 : 0);
+      }
+      final ctx = _client._ctx;
+      final revents = pollSocket(
+        smb2_get_fd(ctx),
+        smb2_which_events(ctx),
+        wait,
+      );
+      if (revents > 0 && smb2_service(ctx, revents) < 0) {
+        final e = _error(ctx, 'Watch failed', path: path);
+        _failure = e.isNetworkFailure
+            ? e
+            : Smb2Exception(
+                e.message,
+                type: Smb2ErrorType.connection,
+                path: path,
+              );
+      }
+    }
+  }
+
+  /// Stops the watch and closes the directory. Closing it again does
+  /// nothing.
+  void close() {
+    if (isClosed) return;
+    final fh = _fh;
+    _fh = nullptr;
+    _client._watchers.remove(_id);
+    // The server ends the pending CHANGE_NOTIFY with NOTIFY_CLEANUP when
+    // the directory closes; its callback finds no watcher and drops it.
+    if (_client._ctx != nullptr) smb2_close(_client._ctx, fh);
+  }
+}
+
+/// The exception for a CHANGE_NOTIFY that failed with the NT [status].
+Smb2Exception _notifyError(Pointer<smb2_context> ctx, int status, String path) {
+  final nt = status & 0xFFFFFFFF;
+  final errno = nterror_to_errno(nt);
+  final type = Smb2ErrorType.fromNtStatus(nt);
+  return Smb2Exception(
+    'Watch failed: ${_string(nterror_to_str(nt))}',
+    type: type == Smb2ErrorType.unknown && nt == 0
+        ? Smb2ErrorType.connection
+        : type,
+    ntStatus: nt == 0 ? null : nt,
+    errno: errno > 0 ? errno : null,
+    path: path,
+  );
+}
+
+/// [timeout] in the whole seconds libsmb2 counts, rounded up so a short
+/// timeout stays one; 0 for none.
+int _seconds(Duration timeout) =>
+    timeout > Duration.zero ? (timeout.inMilliseconds + 999) ~/ 1000 : 0;
+
 // ─── Context setup ────────────────────────────────────────────────────────────
 
 Pointer<smb2_context> _newContext({
@@ -773,10 +1056,7 @@ Pointer<smb2_context> _newContext({
       smb2_set_domain(ctx, domain.toNativeUtf8(allocator: arena).cast());
     }
   });
-  if (timeout > Duration.zero) {
-    // libsmb2 counts whole seconds; round up so a short timeout stays one.
-    smb2_set_timeout(ctx, (timeout.inMilliseconds + 999) ~/ 1000);
-  }
+  if (timeout > Duration.zero) smb2_set_timeout(ctx, _seconds(timeout));
   return ctx;
 }
 
@@ -951,19 +1231,54 @@ final class _OpenFlags {
   final int creat;
   final int trunc;
 
-  const _OpenFlags({required this.creat, required this.trunc});
+  /// O_DIRECTORY, which makes smb2_open() ask for a directory.
+  final int directory;
 
-  /// glibc and bionic.
-  static const _linux = _OpenFlags(creat: 0x40, trunc: 0x200);
+  const _OpenFlags({
+    required this.creat,
+    required this.trunc,
+    required this.directory,
+  });
+
+  /// glibc and bionic on x86 and x86_64.
+  static const _linux = _OpenFlags(
+    creat: 0x40,
+    trunc: 0x200,
+    directory: 0x10000,
+  );
+
+  /// glibc and bionic on ARM, whose O_DIRECTORY differs.
+  static const _linuxArm = _OpenFlags(
+    creat: 0x40,
+    trunc: 0x200,
+    directory: 0x4000,
+  );
 
   /// Apple's libc.
-  static const _darwin = _OpenFlags(creat: 0x200, trunc: 0x400);
+  static const _darwin = _OpenFlags(
+    creat: 0x200,
+    trunc: 0x400,
+    directory: 0x100000,
+  );
 
-  /// The Windows UCRT.
-  static const _windows = _OpenFlags(creat: 0x100, trunc: 0x200);
+  /// The Windows UCRT, with the O_DIRECTORY libsmb2-scripts' config.h
+  /// defines for it.
+  static const _windows = _OpenFlags(
+    creat: 0x100,
+    trunc: 0x200,
+    directory: 0x200000,
+  );
 
   static _OpenFlags _resolve() {
-    if (Platform.isLinux || Platform.isAndroid) return _linux;
+    if (Platform.isLinux || Platform.isAndroid) {
+      return switch (Abi.current()) {
+        Abi.linuxArm ||
+        Abi.linuxArm64 ||
+        Abi.androidArm ||
+        Abi.androidArm64 => _linuxArm,
+        _ => _linux,
+      };
+    }
     if (Platform.isMacOS || Platform.isIOS) return _darwin;
     if (Platform.isWindows) return _windows;
     throw UnsupportedError(

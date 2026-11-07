@@ -1,3 +1,63 @@
+# Migrating to 0.3.0
+
+0.3.0 removes what 0.2.0 deprecated. Code that builds with 0.2.x
+without deprecation warnings builds with 0.3.0 unchanged, except for
+`streamWrite`'s return type (below).
+
+## Removed names
+
+| 0.2.x (deprecated) | 0.3.0 |
+| --- | --- |
+| `Smb2Client.open()` | `Smb2Client()` |
+| `handle.isValid` | `!handle.isClosed` |
+| `client.openFileHandle(path)`, `openFileHandleWrite(path)` | `client.openFile(path)`, `openFileWrite(path)` |
+| `client.readHandle(...)`, `writeHandle(...)` | `client.readFromHandle(...)`, `writeToHandle(...)` |
+| `client.fsync(h)`, `ftruncate(h, n)` | `client.fsyncHandle(h)`, `ftruncateHandle(h, n)` |
+| `timeoutSeconds: 10` | `timeout: const Duration(seconds: 10)` |
+| `pool.listShares(host: ...)` | `Smb2Pool.listSharesOn(host: ...)` |
+| `isCanceled: () => stopped` | `cancelToken: token`, then `token.cancel()` |
+| `poolHandle.closed` | `poolHandle.isClosed` |
+| `poolHandle.refreshFinalizer()` | nothing: remove the call |
+| `e.isConnectionError`, `type.isConnectionError` | `e.isNetworkFailure`, `type.isNetworkFailure` |
+| `e.errorCode` | `e.errno` |
+| `Smb2ErrorType.fileNotFound` | `Smb2ErrorType.notFound` |
+| `Smb2ErrorType.classify(message, errno)` | `Smb2ErrorType.fromFailure(message: message, errno: errno)` |
+
+`timeoutSeconds` went from `Smb2Pool.connect`, `Smb2Pool.listSharesOn`,
+`Smb2Client.connect` and `Smb2Client.listShares`. A token, unlike
+`isCanceled`, also stops a read in progress.
+
+## streamWrite returns the bytes written
+
+`Smb2Pool.streamWrite()` returns a `Future<int>`, the bytes written,
+instead of a `Future<void>`. Awaiting it needs no change; code that passes
+it where a `Future<void> Function()` is expected, such as a tear-off,
+does.
+
+## libsmb2-r11
+
+The hook bundles `libsmb2-r11`, whose libraries carry OpenSSL's libcrypto
+for AES-GCM encryption: they are about ten times larger (2 to 3.5 MB per
+architecture). An app that shows its licences adds OpenSSL's Apache-2.0
+text, `LICENSE-OpenSSL.txt` of the release, beside libsmb2's (see
+NOTICE). A libsmb2 of your own that `hooks.user_defines` points at must
+be r11 or later: 0.3.0 binds `smb2_rename2`, which only the patched r11
+has, and the change notification calls.
+
+## New in 0.3.0
+
+Nothing here needs a change, but it may replace code of your own:
+
+- a delete before a rename onto an existing file: `rename(from, to,
+  overwrite: true)` replaces it in one request, with no moment without
+  the file;
+- your own `mkdir -p` or recursive delete: `mkdir(path, recursive: true)`
+  and `rmdir(path, recursive: true)`;
+- a recursive listing: `streamDirectory(path, recursive: true)`;
+- copies through `streamFile` and `streamWrite`: `copy` and `copyTree`;
+- uploads through `streamWrite`: `uploadFile`, atomic and with progress;
+- polling a directory for changes: `watch`, a stream of changes.
+
 # Migrating to 0.2.0
 
 0.2.0 bundles libsmb2 through a build hook instead of a Flutter plugin,

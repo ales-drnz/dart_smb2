@@ -1,3 +1,41 @@
+## [0.3.0] - 7-11-2026
+
+Removes what 0.2.0 deprecated and adds watches, links, copies and tree helpers. See [MIGRATION.md](MIGRATION.md) for the changes to make in an app.
+
+### Breaking
+- The names deprecated in 0.2.0 are gone: `Smb2Client.open()`, `Smb2Handle.isValid`, `openFileHandle`, `openFileHandleWrite`, `readHandle`, `writeHandle`, `fsync` and `ftruncate` of `Smb2Client`, `timeoutSeconds:`, the `Smb2Pool.listShares()` instance method, `isCanceled:`, `Smb2PoolHandle.closed` and `refreshFinalizer()`, `Smb2Exception.isConnectionError` and `errorCode`, `Smb2ErrorType.isConnectionError`, `fileNotFound` and `classify()`.
+- `Smb2Pool.streamWrite()` returns the bytes written, as a `Future<int>`.
+- The libraries are `libsmb2-r11`, about ten times larger: each carries OpenSSL's libcrypto.
+
+### Added
+- `Smb2Pool.watch()`, a stream of the changes to a directory (`Smb2ChangeEvent`, `Smb2ChangeAction`, `Smb2ChangeFilter`), on a connection of its own that reconnects by itself, and `Smb2Client.watch()` with `Smb2Watcher`.
+- `rename(overwrite: true)`, which replaces an existing file in one request.
+- `link()` for hard links and `symlink()` for symbolic links, in `Smb2Pool` and `Smb2Client`.
+- `mkdir(recursive: true)` and `rmdir(recursive: true)` in `Smb2Pool`, like `mkdir -p` and `rm -r`.
+- `Smb2Pool.streamDirectory()`, a listing as a stream, of a whole tree with `recursive`.
+- `Smb2Pool.copy()` and `copyTree()`, with progress.
+- `Smb2Pool.uploadFile()`, the counterpart of `downloadToFile()`, and `onProgress` and `length` on `streamWrite()`.
+
+### libsmb2-r11
+**All platforms**
+- libsmb2 is upstream master of 7-11-2026 (a52c157).
+- A zero-length read or write no longer fails.
+- A copychunk error reply is read in the format the server sent it.
+- Lease and oplock breaks and their acknowledgements are encoded and decoded right.
+- Signing and encryption go through OpenSSL 3.5's libcrypto, linked in statically: a sealed session on SMB 3.1.1 uses AES-256-GCM or AES-128-GCM, as the server picks, instead of AES-128-CCM.
+- `smb2_rename2()`, patched in, lets a rename replace an existing file.
+
+**Windows**
+- A directory can be opened as a handle, which a watch needs.
+
+### Docs
+- The guides cover watches, links, copies, trees, uploads, renames that replace, encryption, and what Windows 11 24H2 and Windows Server 2025 require: signed sessions, and no guest logon.
+- NOTICE lists OpenSSL, whose Apache-2.0 licence ships with the libraries.
+- `Smb2Client` explains why a request in flight cannot be cancelled.
+
+### Dependencies
+- `code_assets` ^2.2.0 and `lints` ^6.1.0.
+
 ## [0.2.5] - 5-11-2026
 
 ### libsmb2-r10

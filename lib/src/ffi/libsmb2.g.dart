@@ -16,6 +16,17 @@ library;
 
 import 'dart:ffi' as ffi;
 
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<smb2_context>,
+    ffi.Pointer<smb2_file_notify_change_information>,
+  )
+>(isLeaf: true)
+external void free_smb2_file_notify_change_information(
+  ffi.Pointer<smb2_context> smb2,
+  ffi.Pointer<smb2_file_notify_change_information> fnc,
+);
+
 /// Convert an smb2/nt error code into an errno value
 @ffi.Native<ffi.Int Function(ffi.Uint32)>(isLeaf: true)
 external int nterror_to_errno(int status);
@@ -109,6 +120,11 @@ external int smb2_ftruncate(
 )
 external ffi.Pointer<ffi.Char> smb2_get_error(ffi.Pointer<smb2_context> smb2);
 
+/// EVENT SYSTEM INTEGRATION ======================== The following functions
+/// are used to integrate libsmb2 in an event system.
+@ffi.Native<ffi.Int Function(ffi.Pointer<smb2_context>)>(isLeaf: true)
+external int smb2_get_fd(ffi.Pointer<smb2_context> smb2);
+
 /// GetMaxReadWriteSize SMB2 servers have a maximum size for read/write data
 /// that they support.
 @ffi.Native<ffi.Uint32 Function(ffi.Pointer<smb2_context>)>(isLeaf: true)
@@ -125,6 +141,20 @@ external int smb2_get_nterror(ffi.Pointer<smb2_context> smb2);
 @ffi.Native<ffi.Pointer<smb2_context> Function()>()
 external ffi.Pointer<smb2_context> smb2_init_context();
 
+/// Sync link()
+@ffi.Native<
+  ffi.Int Function(
+    ffi.Pointer<smb2_context>,
+    ffi.Pointer<ffi.Char>,
+    ffi.Pointer<ffi.Char>,
+  )
+>()
+external int smb2_link(
+  ffi.Pointer<smb2_context> smb2,
+  ffi.Pointer<ffi.Char> oldpath,
+  ffi.Pointer<ffi.Char> newpath,
+);
+
 /// Sync mkdir()
 @ffi.Native<
   ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>)
@@ -132,6 +162,49 @@ external ffi.Pointer<smb2_context> smb2_init_context();
 external int smb2_mkdir(
   ffi.Pointer<smb2_context> smb2,
   ffi.Pointer<ffi.Char> path,
+);
+
+/// As smb2_notify_change_async() but on a directory handle the caller has
+/// opened. The handle stays the caller's: it is not closed when the watch
+/// ends, and the caller must not close it while a watch is outstanding.
+@ffi.Native<
+  ffi.Int Function(
+    ffi.Pointer<smb2_context>,
+    ffi.Pointer<smb2fh>,
+    ffi.Uint16,
+    ffi.Uint32,
+    ffi.Int,
+    ffi.Pointer<
+      ffi.NativeFunction<
+        ffi.Void Function(
+          ffi.Pointer<smb2_context> smb2,
+          ffi.Int status,
+          ffi.Pointer<ffi.Void> command_data,
+          ffi.Pointer<ffi.Void> cb_data,
+        )
+      >
+    >,
+    ffi.Pointer<ffi.Void>,
+  )
+>()
+external int smb2_notify_change_filehandle_async(
+  ffi.Pointer<smb2_context> smb2,
+  ffi.Pointer<smb2fh> smb2_dir_fh,
+  int flags,
+  int filter,
+  int loop,
+  ffi.Pointer<
+    ffi.NativeFunction<
+      ffi.Void Function(
+        ffi.Pointer<smb2_context> smb2,
+        ffi.Int status,
+        ffi.Pointer<ffi.Void> command_data,
+        ffi.Pointer<ffi.Void> cb_data,
+      )
+    >
+  >
+  cb,
+  ffi.Pointer<ffi.Void> cb_data,
 );
 
 /// Sync open()
@@ -240,6 +313,22 @@ external int smb2_rename(
   ffi.Pointer<ffi.Char> newpath,
 );
 
+/// Sync rename2()
+@ffi.Native<
+  ffi.Int Function(
+    ffi.Pointer<smb2_context>,
+    ffi.Pointer<ffi.Char>,
+    ffi.Pointer<ffi.Char>,
+    ffi.Uint32,
+  )
+>()
+external int smb2_rename2(
+  ffi.Pointer<smb2_context> smb2,
+  ffi.Pointer<ffi.Char> oldpath,
+  ffi.Pointer<ffi.Char> newpath,
+  int flags,
+);
+
 /// Sync rmdir()
 @ffi.Native<
   ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>)
@@ -248,6 +337,11 @@ external int smb2_rmdir(
   ffi.Pointer<smb2_context> smb2,
   ffi.Pointer<ffi.Char> path,
 );
+
+/// Called to process the events when events become available for the smb2
+/// file descriptor.
+@ffi.Native<ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Int)>()
+external int smb2_service(ffi.Pointer<smb2_context> smb2, int revents);
 
 /// Set the domain when authenticating. This function is only needed when
 /// libsmb2 is built --without-libkrb5
@@ -355,6 +449,22 @@ external int smb2_statvfs(
   ffi.Pointer<Smb2StatVfsNative> statvfs,
 );
 
+/// Sync symlink()
+@ffi.Native<
+  ffi.Int Function(
+    ffi.Pointer<smb2_context>,
+    ffi.Pointer<ffi.Char>,
+    ffi.Pointer<ffi.Char>,
+    ffi.Uint32,
+  )
+>()
+external int smb2_symlink(
+  ffi.Pointer<smb2_context> smb2,
+  ffi.Pointer<ffi.Char> target,
+  ffi.Pointer<ffi.Char> linkpath,
+  int flags,
+);
+
 /// Sync truncate() Function returns 0 : Success -errno : An error occurred.
 @ffi.Native<
   ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>, ffi.Uint64)
@@ -390,6 +500,59 @@ external int smb2_utimes(
   int mtime_us,
 );
 
+/// Returns which events that we need to poll for for the smb2 file
+/// descriptor.
+@ffi.Native<ffi.Int Function(ffi.Pointer<smb2_context>)>(isLeaf: true)
+external int smb2_which_events(ffi.Pointer<smb2_context> smb2);
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_CREATION = 64;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_DIR_NAME = 2;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_EA = 128;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_FILE_NAME = 1;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_LAST_ACCESS = 32;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_LAST_WRITE = 16;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_SECURITY = 256;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_SIZE = 8;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_STREAM_NAME = 512;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_STREAM_SIZE = 1024;
+
+const int SMB2_CHANGE_NOTIFY_FILE_NOTIFY_CHANGE_STREAM_WRITE = 2048;
+
+const int SMB2_CHANGE_NOTIFY_REPLY_SIZE = 9;
+
+const int SMB2_CHANGE_NOTIFY_REQUEST_SIZE = 32;
+
+const int SMB2_CHANGE_NOTIFY_WATCH_TREE = 1;
+
+const int SMB2_NOTIFY_CHANGE_FILE_ACTION_ADDED = 1;
+
+const int SMB2_NOTIFY_CHANGE_FILE_ACTION_ADDED_STREAM = 6;
+
+const int SMB2_NOTIFY_CHANGE_FILE_ACTION_MODIFIED = 3;
+
+const int SMB2_NOTIFY_CHANGE_FILE_ACTION_MODIFIED_STREAM = 8;
+
+const int SMB2_NOTIFY_CHANGE_FILE_ACTION_REMOVED = 2;
+
+const int SMB2_NOTIFY_CHANGE_FILE_ACTION_REMOVED_STREAM = 7;
+
+const int SMB2_NOTIFY_CHANGE_FILE_ACTION_RENAMED_NEW_NAME = 5;
+
+const int SMB2_NOTIFY_CHANGE_FILE_ACTION_RENAMED_OLD_NAME = 4;
+
+const int SMB2_RENAME_REPLACE_IF_EXISTS = 1;
+
 const int SMB2_SHARE_TYPE_DEVICE = 2;
 
 const int SMB2_SHARE_TYPE_DISK = 1;
@@ -407,6 +570,14 @@ const int SMB2_SHARE_TYPE_PRINT = 3;
 const int SMB2_SHARE_TYPE_PRINTQ = 1;
 
 const int SMB2_SHARE_TYPE_TEMPORARY = 1073741824;
+
+const int SMB2_SYMLINK_ABSOLUTE = 2;
+
+const int SMB2_SYMLINK_DIRECTORY = 1;
+
+const int SMB2_SYMLINK_ERROR_TAG = 1280137555;
+
+const int SMB2_SYMLINK_FLAG_RELATIVE = 1;
 
 const int SMB2_TYPE_BLOCKDEV = 5;
 
@@ -493,6 +664,25 @@ final class Smb2StatVfsNative extends ffi.Struct {
 
 /// This creates a new smb2fh based on fileid. Free it with smb2_close_async()
 final class smb2_context extends ffi.Opaque {}
+
+final class smb2_file_notify_change_information extends ffi.Struct {
+  @ffi.Uint32()
+  external int action;
+
+  external ffi.Pointer<ffi.Char> name;
+
+  external ffi.Pointer<smb2_file_notify_change_information> next;
+
+  static ffi.Pointer<smb2_file_notify_change_information> $allocate(
+    ffi.Allocator $allocator, {
+    required int action,
+    required ffi.Pointer<ffi.Char> name,
+    required ffi.Pointer<smb2_file_notify_change_information> next,
+  }) => $allocator<smb2_file_notify_change_information>()
+    ..ref.action = action
+    ..ref.name = name
+    ..ref.next = next;
+}
 
 /// Set which version of SMB to negotiate. Default is to let the server pick the
 /// version.

@@ -794,32 +794,6 @@ void main() {
     });
 
     test(
-      'isCanceled turning true while the listener works stops there',
-      () async {
-        var stop = false;
-        var afterStop = 0;
-        await expectLater(
-          pool
-              .streamFile(
-                seedFile,
-                chunkSize: 128 * 1024,
-                // ignore: deprecated_member_use_from_same_package
-                isCanceled: () => stop,
-              )
-              .asyncMap((c) async {
-                if (stop) afterStop++;
-                await Future<void>.delayed(const Duration(milliseconds: 100));
-                stop = true;
-                return c;
-              })
-              .drain<void>(),
-          throwsType(Smb2ErrorType.cancelled),
-        );
-        expect(afterStop, 0);
-      },
-    );
-
-    test(
       'a token cancelled while the listener is paused ends the stream',
       () async {
         final w = poolWorkers(pool).single;
@@ -861,37 +835,6 @@ void main() {
         await sub.cancel();
       },
     );
-
-    test('isCanceled true from the start delivers nothing', () async {
-      final chunks = <int>[];
-      await expectLater(
-        pool
-            .streamFile(
-              seedFile,
-              chunkSize: 256 * 1024,
-              // ignore: deprecated_member_use_from_same_package
-              isCanceled: () => true,
-            )
-            .map((c) => chunks.add(c.length))
-            .drain<void>(),
-        throwsType(Smb2ErrorType.cancelled),
-      );
-      expect(chunks, isEmpty);
-    });
-
-    test('isCanceled turning true after the last chunk completes', () async {
-      var delivered = 0;
-      final bytes = await pool
-          .streamFile(
-            seedFile,
-            chunkSize: 256 * 1024,
-            // ignore: deprecated_member_use_from_same_package
-            isCanceled: () => delivered == seedSize,
-          )
-          .map((c) => delivered += c.length)
-          .last;
-      expect(bytes, seedSize);
-    });
 
     test(
       'a cancelled subscription ends quietly when the read ahead fails',

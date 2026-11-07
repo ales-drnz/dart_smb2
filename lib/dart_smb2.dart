@@ -16,7 +16,7 @@ import 'src/smb2_client.dart';
 
 export 'src/pool/pool.dart';
 export 'src/smb2_cancel_token.dart';
-export 'src/smb2_client.dart' show Smb2Client, Smb2Handle;
+export 'src/smb2_client.dart' show Smb2Client, Smb2Handle, Smb2Watcher;
 export 'src/smb2_error_type.dart';
 export 'src/smb2_exception.dart';
-export 'src/smb2_types.dart';
+export 'src/smb2_types.dart' hide changePath;

@@ -9,7 +9,7 @@
 //   dart run tool/ffigen.dart
 //
 // The headers are libsmb2-scripts' PATCHED tree (patch_utimes.py adds
-// smb2_utimes to libsmb2.h), and the functions bound are exactly those in
+// smb2_utimes and patch_rename_replace.py smb2_rename2 to libsmb2.h), and the functions bound are exactly those in
 // its verify/symbols.txt, the list every release binary is checked to
 // export. tool/bindings_drift.dart checks the generated file against that
 // list and against a release's manifest.json.
@@ -36,6 +36,9 @@ const _leaf = {
   'nterror_to_str',
   'smb2_closedir',
   'smb2_free_data',
+  'smb2_get_fd',
+  'smb2_which_events',
+  'free_smb2_file_notify_change_information',
 };
 
 /// The builtin headers (stddef.h, ...) of the clang on PATH, for a
@@ -62,6 +65,7 @@ const _structs = {
   'smb2fh',
   'smb2_share_enum_reply',
   'smb2_share_info_1',
+  'smb2_file_notify_change_information',
 };
 
 Future<void> main() async {
@@ -157,7 +161,11 @@ Future<void> main() async {
         },
         macroConstant: (node) {
           if (node.originalName.startsWith('SMB2_TYPE_') ||
-              node.originalName.startsWith('SMB2_SHARE_TYPE_')) {
+              node.originalName.startsWith('SMB2_SHARE_TYPE_') ||
+              node.originalName.startsWith('SMB2_CHANGE_NOTIFY_') ||
+              node.originalName.startsWith('SMB2_NOTIFY_CHANGE_FILE_ACTION_') ||
+              node.originalName.startsWith('SMB2_SYMLINK_') ||
+              node.originalName == 'SMB2_RENAME_REPLACE_IF_EXISTS') {
             node.isIncluded = true;
           }
         },

@@ -3,7 +3,7 @@
 #### SMB2/3 client for Dart and Flutter.
 
 [![](https://img.shields.io/pub/v/dart_smb2.svg?style=for-the-badge&logo=dart&logoColor=white)](https://pub.dev/packages/dart_smb2)
-[![](https://img.shields.io/badge/libsmb2-r9-orange.svg?style=for-the-badge)](https://github.com/ales-drnz/libsmb2-scripts)
+[![](https://img.shields.io/badge/libsmb2-r11-orange.svg?style=for-the-badge)](https://github.com/ales-drnz/libsmb2-scripts)
 [![](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg?style=for-the-badge)](LICENSE)
 [![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ales-drnz/dart_smb2)
 [![](https://img.shields.io/discord/1485588004029333516?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/g2Qf4Mq9MP)
@@ -25,18 +25,20 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.2.5
+  dart_smb2: ^0.3.0
 ```
 
 ## Platform requirements
 
 | Platform  | Minimum | Architecture | Size | Device | Emulator |
 | :--- | :--- | :--- | :---: | :---: | :---:
-| Android | 7.0 (SDK 24) | arm64-v8a, armeabi-v7a, x86_64 | 246, 233, 253 KB | Yes | Yes |
-| iOS | 13.0 | arm64, x86_64 | 271, 235 KB | Yes | Yes |
-| macOS | 10.15 | arm64, x86_64 | 257, 239 KB | Yes | - |
-| Windows | 10 | arm64, x86_64 | 238, 256 KB | Yes | - |
-| Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 259, 268 KB | Yes | - |
+| Android | 7.0 (SDK 24) | arm64-v8a, armeabi-v7a, x86_64 | 2.4, 1.8, 3.3 MB | Yes | Yes |
+| iOS | 13.0 | arm64, x86_64 | TBD | Yes | Yes |
+| macOS | 10.15 | arm64, x86_64 | TBD | Yes | - |
+| Windows | 10 | arm64, x86_64 | 1.7, 2.9 MB | Yes | - |
+| Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 2.6, 3.5 MB | Yes | - |
+
+Each library carries OpenSSL's libcrypto, linked in for SMB3 encryption with AES-GCM: that is most of its size.
 
 The package needs Dart 3.10, and Flutter 3.47 in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
 
@@ -55,7 +57,7 @@ The package needs Dart 3.10, and Flutter 3.47 in a Flutter app. It is a plain Da
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/activity.png" width="32"></td>
 <td valign="middle"><b>Reconnects</b><br>a dropped connection is <a href="https://pub.dev/documentation/dart_smb2/latest/topics/Errors%20and%20cancellation-topic.html">reconnected once</a> for every caller, the call repeated when that is safe, and open files reopened.</td>
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/download.png" width="32"></td>
-<td valign="middle"><b>Streaming and downloads</b><br><a href="https://pub.dev/documentation/dart_smb2/latest/topics/Reading%20and%20writing-topic.html"><code>streamFile()</code></a> reads one chunk ahead; <a href="https://pub.dev/documentation/dart_smb2/latest/topics/Reading%20and%20writing-topic.html"><code>downloadToFile()</code></a> writes at the disk's pace and renames into place only when complete.</td>
+<td valign="middle"><b>Streaming, downloads and uploads</b><br><a href="https://pub.dev/documentation/dart_smb2/latest/topics/Reading%20and%20writing-topic.html"><code>streamFile()</code></a> reads one chunk ahead; <a href="https://pub.dev/documentation/dart_smb2/latest/topics/Reading%20and%20writing-topic.html"><code>downloadToFile()</code></a> and <code>uploadFile()</code> report their progress and rename into place only when complete.</td>
 </tr>
 <tr>
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/zap.png" width="32"></td>
@@ -67,11 +69,11 @@ The package needs Dart 3.10, and Flutter 3.47 in a Flutter app. It is a plain Da
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/cpu.png" width="32"></td>
 <td valign="middle"><b>No extra copies</b><br>reads land in native buffers that reach your isolate without a copy.</td>
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/key-round.png" width="32"></td>
-<td valign="middle"><b>SMB3 security</b><br>NTLM sign-in, <a href="https://pub.dev/documentation/dart_smb2/latest/topics/Connection-topic.html">encryption and signing</a>, and the dialect you choose, up to SMB 3.1.1.</td>
+<td valign="middle"><b>SMB3 security</b><br>NTLM sign-in, <a href="https://pub.dev/documentation/dart_smb2/latest/topics/Connection-topic.html">AES-GCM encryption and signing</a>, and the dialect you choose, up to SMB 3.1.1.</td>
 </tr>
 <tr>
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/folder.png" width="32"></td>
-<td valign="middle"><b>Files and directories</b><br>listings with metadata, ranges, handles, writes, renames, timestamps, share space and share enumeration.</td>
+<td valign="middle"><b>Files and directories</b><br>listings with metadata, recursive listings, <code>mkdir -p</code> and <code>rm -r</code>, copies, renames that replace, links, directory watches, timestamps and share enumeration.</td>
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/terminal.png" width="32"></td>
 <td valign="middle"><b>Synchronous client</b><br><a href="https://pub.dev/documentation/dart_smb2/latest/topics/Synchronous%20client-topic.html"><code>Smb2Client</code></a>, the client the workers run, for code that manages its own isolates.</td>
 </tr>
@@ -147,11 +149,13 @@ Paths are relative to the share, and `''` is its root. See [Connection](https://
 ```dart
 final entries = await pool.listDirectory('Album');
 final stat = await pool.stat('Album/01 - Intro.flac');
-await pool.mkdir('Backup/2026');
-await pool.rename('Backup/log.bin', 'Backup/2026/log.bin');
+await pool.mkdir('Backup/2026/11', recursive: true);
+await pool.rename('Backup/log.new', 'Backup/log.bin', overwrite: true);
+await pool.copyTree('Album', 'Backup/Album');
+pool.watch('Inbox').listen((e) => print('${e.action.name} ${e.path}'));
 ```
 
-A listing carries each entry's metadata, so no request per entry is needed. See [Files and directories](https://pub.dev/documentation/dart_smb2/latest/topics/Files%20and%20directories-topic.html) for metadata, share space and the other operations.
+A listing carries each entry's metadata, so no request per entry is needed. See [Files and directories](https://pub.dev/documentation/dart_smb2/latest/topics/Files%20and%20directories-topic.html) for metadata, share space, links, copies, watches and the other operations.
 
 ### Reading, writing and streaming
 
@@ -208,8 +212,8 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 
 - [API reference](https://pub.dev/documentation/dart_smb2/latest/), with these guides:
   - [Connection](https://pub.dev/documentation/dart_smb2/latest/topics/Connection-topic.html): connecting a pool, its options, listing shares, paths and disconnecting
-  - [Files and directories](https://pub.dev/documentation/dart_smb2/latest/topics/Files%20and%20directories-topic.html): listings, metadata, share space and managing files
-  - [Reading and writing](https://pub.dev/documentation/dart_smb2/latest/topics/Reading%20and%20writing-topic.html): ranges, handles, streaming, downloads and writes
+  - [Files and directories](https://pub.dev/documentation/dart_smb2/latest/topics/Files%20and%20directories-topic.html): listings, metadata, share space, managing files and trees, links, copies and watching a directory
+  - [Reading and writing](https://pub.dev/documentation/dart_smb2/latest/topics/Reading%20and%20writing-topic.html): ranges, handles, streaming, downloads, uploads and writes
   - [Errors and cancellation](https://pub.dev/documentation/dart_smb2/latest/topics/Errors%20and%20cancellation-topic.html): cancel tokens, error types and reconnects
   - [Synchronous client](https://pub.dev/documentation/dart_smb2/latest/topics/Synchronous%20client-topic.html): `Smb2Client` in an isolate of your own
 - [Example](example/)
@@ -219,7 +223,7 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 
 ## Project background
 
-I wrote the bindings, the client, the pool and the build hook with Claude Code. The native library is [libsmb2](https://github.com/sahlberg/libsmb2) by Ronnie Sahlberg, licensed under the LGPL-2.1: see [NOTICE](NOTICE) for what an app that bundles it should include.
+I wrote the bindings, the client, the pool and the build hook with Claude Code. The native library is [libsmb2](https://github.com/sahlberg/libsmb2) by Ronnie Sahlberg, licensed under the LGPL-2.1, with [OpenSSL](https://www.openssl.org)'s libcrypto (Apache-2.0) linked in: see [NOTICE](NOTICE) for what an app that bundles them should include.
 
 Samba is a trademark of the Software Freedom Conservancy, and Windows a trademark of Microsoft. dart_smb2 is not affiliated with either.
 

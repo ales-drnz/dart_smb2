@@ -89,15 +89,6 @@ final class Smb2Exception implements Exception {
   /// [Smb2ErrorType.accessDenied].
   bool get isAuthError => type == Smb2ErrorType.auth;
 
-  /// Same as [isNetworkFailure].
-  @Deprecated('Use isNetworkFailure. Will be removed in 0.3.0.')
-  bool get isConnectionError => isNetworkFailure;
-
-  /// Same as [errno]. 0.1.x read it from the context's NT status after
-  /// every failure; it is null where [errno] is.
-  @Deprecated('Use errno. Will be removed in 0.3.0.')
-  int? get errorCode => errno;
-
   @override
   String toString() {
     final parts = <String>['Smb2Exception(${type.name})'];

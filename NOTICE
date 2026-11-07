@@ -8,16 +8,25 @@ hook downloads for each target:
   https://github.com/sahlberg/libsmb2
   License: GNU Lesser General Public License, version 2.1 or later
 
+From libsmb2-r11 each binary also contains, linked statically, the
+libcrypto of OpenSSL, which signs and encrypts the SMB3 traffic:
+
+  OpenSSL - cryptography library
+  Copyright (c) 1998-2026 The OpenSSL Project Authors
+  https://www.openssl.org
+  License: Apache License, version 2.0
+
 The binaries are built by libsmb2-scripts
 (https://github.com/ales-drnz/libsmb2-scripts) and published on the
 libsmb2-rN releases of https://github.com/ales-drnz/dart_smb2. Each release
-carries the license texts (COPYING, LICENCE-LGPL-2.1.txt) and names the
+carries the license texts (COPYING, LICENCE-LGPL-2.1.txt and, from r11,
+LICENSE-OpenSSL.txt) and names the
 libsmb2-scripts commit it was built from, which is the corresponding source
 of its binaries.
 
-An app that distributes libsmb2 this way should include the LGPL-2.1 text
-and this notice, and point to that source. Flutter's license page does
-not list libsmb2 by itself: an app that shows one adds it, for example with
+An app that distributes libsmb2 this way should include the LGPL-2.1 text,
+OpenSSL's Apache-2.0 license and this notice, and point to that source. Flutter's license page does
+not list libsmb2 or OpenSSL by itself: an app that shows one adds it, for example with
 LicenseRegistry.addLicense and the texts of the release. The library is
 loaded dynamically, and hooks.user_defines.dart_smb2.libsmb2 replaces it
 with another build (see the package README).

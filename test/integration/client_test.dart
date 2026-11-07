@@ -408,9 +408,7 @@ void main() {
         throwsA(
           isA<Smb2Exception>()
               .having((e) => e.ntStatus, 'ntStatus', 0xC0000034)
-              .having((e) => e.errno, 'errno', isNotNull)
-              // ignore: deprecated_member_use_from_same_package
-              .having((e) => e.errorCode, 'errorCode', isNotNull),
+              .having((e) => e.errno, 'errno', isNotNull),
         ),
       );
       expect(

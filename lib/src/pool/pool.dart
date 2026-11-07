@@ -19,6 +19,7 @@ import '../smb2_exception.dart';
 import '../smb2_types.dart';
 import 'handle.dart';
 import 'protocol.dart';
+import 'watch.dart';
 import 'worker.dart';
 
 export 'handle.dart' show Smb2File, Smb2PoolHandle;
@@ -51,6 +52,9 @@ final class Smb2Pool {
   final List<Slot> _slots;
   final ConnectParams _params;
   final Set<Future<void>> _reconnects = {};
+
+  /// Stops the watches in progress, for [disconnect].
+  final Set<Future<void> Function()> _watches = {};
 
   /// Closes still on their way to the server, by path: a call that would
   /// conflict with the open file waits for them (see [_mutates]).
@@ -105,7 +109,6 @@ final class Smb2Pool {
     String? domain,
     int workers = 4,
     Duration timeout = const Duration(seconds: 30),
-    @Deprecated('Use timeout. Will be removed in 0.3.0.') int? timeoutSeconds,
     bool seal = false,
     bool signing = false,
     Smb2Version version = Smb2Version.any,
@@ -122,9 +125,7 @@ final class Smb2Pool {
       user: user,
       password: password,
       domain: domain,
-      timeout: timeoutSeconds != null
-          ? Duration(seconds: timeoutSeconds)
-          : timeout,
+      timeout: timeout,
       seal: seal,
       signing: signing,
       version: version,
@@ -170,37 +171,18 @@ final class Smb2Pool {
     String? password,
     String? domain,
     Duration timeout = const Duration(seconds: 15),
-    @Deprecated('Use timeout. Will be removed in 0.3.0.') int? timeoutSeconds,
   }) {
-    final limit = timeoutSeconds != null
-        ? Duration(seconds: timeoutSeconds)
-        : timeout;
     return Isolate.run(
       () => Smb2Client.listShares(
         host: host,
         user: user,
         password: password,
         domain: domain,
-        timeout: limit,
+        timeout: timeout,
       ),
       debugName: 'dart_smb2 listShares',
     );
   }
-
-  /// The shares of [host], as [listSharesOn] lists them.
-  @Deprecated('Use Smb2Pool.listSharesOn. Will be removed in 0.3.0.')
-  Future<List<Smb2ShareInfo>> listShares({
-    required String host,
-    String? user,
-    String? password,
-    String? domain,
-  }) => listSharesOn(
-    host: host,
-    user: user,
-    password: password,
-    domain: domain,
-    timeout: _params.timeout,
-  );
 
   /// Number of workers.
   int get workerCount => _slots.length;
@@ -255,23 +237,125 @@ final class Smb2Pool {
       _run<void>(Op.echo, const [], cancelToken: cancelToken);
 
   /// Creates the directory [path]. Not repeated after a network failure.
-  Future<void> mkdir(String path, {Smb2CancelToken? cancelToken}) => _run(
-    Op.mkdir,
-    [path],
-    path: path,
-    idempotent: false,
-    cancelToken: cancelToken,
-  );
+  ///
+  /// With [recursive], also creates the directories above it that are
+  /// missing, like `mkdir -p`: a directory that exists already is not an
+  /// error, a file in the way fails with [Smb2ErrorType.notADirectory] or
+  /// [Smb2ErrorType.alreadyExists]. As existing is not a failure, the
+  /// recursive form is repeated after a network failure.
+  Future<void> mkdir(
+    String path, {
+    bool recursive = false,
+    Smb2CancelToken? cancelToken,
+  }) async {
+    if (!recursive) {
+      return _run(
+        Op.mkdir,
+        [path],
+        path: path,
+        idempotent: false,
+        cancelToken: cancelToken,
+      );
+    }
+    final parts = _segments(path);
+    // From the deepest existing directory down: usually one stat.
+    var have = parts.length;
+    while (have > 0) {
+      final dir = parts.take(have).join('/');
+      try {
+        final st = await stat(dir, cancelToken: cancelToken);
+        if (!st.isDirectory) {
+          throw Smb2Exception(
+            'Not a directory',
+            type: Smb2ErrorType.notADirectory,
+            path: dir,
+          );
+        }
+        break;
+      } on Smb2Exception catch (e) {
+        if (!e.isNotFound) rethrow;
+        have--;
+      }
+    }
+    for (var i = have + 1; i <= parts.length; i++) {
+      final dir = parts.take(i).join('/');
+      try {
+        await _run<void>(Op.mkdir, [dir], path: dir, cancelToken: cancelToken);
+      } on Smb2Exception catch (e) {
+        // Made meanwhile, by another client or by a repeat.
+        if (e.type != Smb2ErrorType.alreadyExists ||
+            !(await stat(dir, cancelToken: cancelToken)).isDirectory) {
+          rethrow;
+        }
+      }
+    }
+  }
 
   /// Removes the empty directory [path]. Not repeated after a network
   /// failure.
-  Future<void> rmdir(String path, {Smb2CancelToken? cancelToken}) => _run(
-    Op.rmdir,
-    [path],
-    path: path,
-    idempotent: false,
-    cancelToken: cancelToken,
-  );
+  ///
+  /// With [recursive], removes everything below it first, like `rm -r`:
+  /// files, links (not what they point at) and directories, deepest first,
+  /// several at a time. An entry that is gone already is skipped, so the
+  /// removal is repeated after a network failure. It stops at the first
+  /// entry it cannot remove, leaving the rest; a file the server keeps open
+  /// fails with [Smb2ErrorType.inUse] or [Smb2ErrorType.accessDenied].
+  Future<void> rmdir(
+    String path, {
+    bool recursive = false,
+    Smb2CancelToken? cancelToken,
+  }) async {
+    if (!recursive) {
+      return _run(
+        Op.rmdir,
+        [path],
+        path: path,
+        idempotent: false,
+        cancelToken: cancelToken,
+      );
+    }
+    await _removeTree(_segments(path).join('/'), cancelToken);
+  }
+
+  Future<void> _removeTree(String dir, Smb2CancelToken? cancelToken) async {
+    final entries = await listDirectory(dir, cancelToken: cancelToken);
+    Future<void> remove(Smb2DirEntry e) async {
+      final child = dir.isEmpty ? e.name : '$dir/${e.name}';
+      if (e.isDirectory) return _removeTree(child, cancelToken);
+      try {
+        await _run<void>(
+          Op.deleteFile,
+          [child],
+          path: child,
+          cancelToken: cancelToken,
+        );
+      } on Smb2Exception catch (err) {
+        if (err.isNotFound) return;
+        // A link to a directory goes with rmdir, which leaves its target.
+        if (err.type != Smb2ErrorType.isADirectory) rethrow;
+        await _gone(Op.rmdir, child, cancelToken);
+      }
+    }
+
+    // As many at once as there are workers.
+    for (var i = 0; i < entries.length; i += workerCount) {
+      await Future.wait(
+        entries.skip(i).take(workerCount).map(remove),
+        eagerError: true,
+      );
+    }
+    await _gone(Op.rmdir, dir, cancelToken);
+  }
+
+  /// Runs [op] on [path], repeated after a network failure, and takes a
+  /// missing path for done.
+  Future<void> _gone(Op op, String path, Smb2CancelToken? cancelToken) async {
+    try {
+      await _run<void>(op, [path], path: path, cancelToken: cancelToken);
+    } on Smb2Exception catch (e) {
+      if (!e.isNotFound) rethrow;
+    }
+  }
 
   /// Deletes the file [path]; a directory, or a link to one, fails with
   /// [Smb2ErrorType.isADirectory] (remove it with [rmdir]). Not repeated
@@ -286,14 +370,50 @@ final class Smb2Pool {
 
   /// Renames or moves [oldPath] to [newPath]. Not repeated after a network
   /// failure.
+  ///
+  /// When [newPath] exists the rename fails with
+  /// [Smb2ErrorType.alreadyExists], unless [overwrite] is set: then a file
+  /// at [newPath] is replaced in the same step, with no moment without one.
+  /// A directory at [newPath], or a file another client holds open, is not
+  /// replaced even then; see [Smb2Client.rename].
   Future<void> rename(
     String oldPath,
     String newPath, {
+    bool overwrite = false,
     Smb2CancelToken? cancelToken,
   }) => _run(
     Op.rename,
-    [oldPath, newPath],
+    [oldPath, newPath, overwrite],
     path: oldPath,
+    idempotent: false,
+    cancelToken: cancelToken,
+  );
+
+  /// Creates [newPath] as a hard link to the file [existingPath]; see
+  /// [Smb2Client.link]. Not repeated after a network failure.
+  Future<void> link(
+    String existingPath,
+    String newPath, {
+    Smb2CancelToken? cancelToken,
+  }) => _run(
+    Op.link,
+    [existingPath, newPath],
+    path: newPath,
+    idempotent: false,
+    cancelToken: cancelToken,
+  );
+
+  /// Creates a symbolic link at [linkPath] that points at [target]; see
+  /// [Smb2Client.symlink]. Not repeated after a network failure.
+  Future<void> symlink(
+    String target,
+    String linkPath, {
+    bool directory = false,
+    Smb2CancelToken? cancelToken,
+  }) => _run(
+    Op.symlink,
+    [target, linkPath, directory],
+    path: linkPath,
     idempotent: false,
     cancelToken: cancelToken,
   );
@@ -567,8 +687,6 @@ final class Smb2Pool {
     int chunkSize = defaultChunkSize,
     void Function(int received, int total)? onProgress,
     Smb2CancelToken? cancelToken,
-    @Deprecated('Use cancelToken. Will be removed in 0.3.0.')
-    bool Function()? isCanceled,
   }) {
     final controller = StreamController<Uint8List>();
     // The token of the stream's own requests, cancelled by [cancelToken]
@@ -578,9 +696,6 @@ final class Smb2Pool {
     var stopped = false;
     Completer<void>? resumed;
     Future<void>? pumping;
-
-    Smb2Exception cancelled() =>
-        Smb2Exception('Cancelled', type: Smb2ErrorType.cancelled, path: path);
 
     Future<void> pump() async {
       Smb2PoolHandle? handle;
@@ -609,10 +724,7 @@ final class Smb2Pool {
           cancelToken: reads,
         )..ignore();
         var received = 0;
-        if (size > 0 && !stopped) {
-          if (isCanceled?.call() ?? false) throw cancelled();
-          next = fetch(0);
-        }
+        if (size > 0 && !stopped) next = fetch(0);
         while (next != null) {
           final chunk = await next;
           next = null;
@@ -634,11 +746,6 @@ final class Smb2Pool {
           }
           if (stopped) return;
           reads.throwIfCancelled(path: path);
-          // Like 0.1.x, which asked before each read: nothing more reaches
-          // the listener once isCanceled says so.
-          if (received > 0 && (isCanceled?.call() ?? false)) {
-            throw cancelled();
-          }
           received += chunk.length;
           if (received < size) next = fetch(received);
           onProgress?.call(received, size);
@@ -694,8 +801,6 @@ final class Smb2Pool {
     int chunkSize = defaultChunkSize,
     void Function(int received, int total)? onProgress,
     Smb2CancelToken? cancelToken,
-    @Deprecated('Use cancelToken. Will be removed in 0.3.0.')
-    bool Function()? isCanceled,
   }) async {
     final File part;
     final RandomAccessFile out;
@@ -718,8 +823,6 @@ final class Smb2Pool {
         chunkSize: chunkSize,
         onProgress: onProgress,
         cancelToken: cancelToken,
-        // ignore: deprecated_member_use_from_same_package
-        isCanceled: isCanceled,
       )) {
         await out.writeFrom(chunk);
         written += chunk.length;
@@ -746,14 +849,21 @@ final class Smb2Pool {
   }
 
   /// Replaces the content of [path] with [chunks], written in order through
-  /// one handle, so only one chunk is in memory at a time.
+  /// one handle, so only one chunk is in memory at a time, and returns the
+  /// bytes written.
   ///
   /// Each chunk goes to its own offset, so after a network failure the pool
   /// reconnects, reopens the file (without emptying it again) and writes the
   /// chunk once more.
-  Future<void> streamWrite(
+  ///
+  /// [onProgress] gets the bytes the server has taken so far and [length],
+  /// the total the caller expects (-1 when not given), after each chunk, as
+  /// [streamFile] reports a download.
+  Future<int> streamWrite(
     String path,
     Stream<Uint8List> chunks, {
+    int? length,
+    void Function(int sent, int total)? onProgress,
     Smb2CancelToken? cancelToken,
   }) async {
     final handle = await openFileWrite(
@@ -761,9 +871,11 @@ final class Smb2Pool {
       truncate: true,
       cancelToken: cancelToken,
     );
+    var offset = 0;
     try {
-      var offset = 0;
       await for (final chunk in chunks) {
+        cancelToken?.throwIfCancelled(path: path);
+        if (chunk.isEmpty) continue;
         await writeToHandle(
           handle,
           chunk,
@@ -771,13 +883,415 @@ final class Smb2Pool {
           cancelToken: cancelToken,
         );
         offset += chunk.length;
+        onProgress?.call(offset, length ?? -1);
       }
     } catch (_) {
       _closeLater(handle);
       rethrow;
     }
     await closeHandle(handle);
+    return offset;
   }
+
+  /// Uploads the local file [source] to [path] and returns the bytes
+  /// written: the counterpart of [downloadToFile].
+  ///
+  /// The file is read in chunks of [chunkSize] and written to a temporary
+  /// file next to [path] (`<path>.part-<random>`), which replaces [path]
+  /// only once complete (a rename with `overwrite`), so readers of [path]
+  /// never see half a file. A failure or a cancellation through
+  /// [cancelToken] removes the temporary file and throws; [path] is left as
+  /// it was. [onProgress] gets the bytes the server has taken and the file
+  /// size after each chunk.
+  Future<int> uploadFile(
+    String source,
+    String path, {
+    int chunkSize = defaultChunkSize,
+    void Function(int sent, int total)? onProgress,
+    Smb2CancelToken? cancelToken,
+  }) async {
+    if (chunkSize <= 0) {
+      throw Smb2Exception(
+        'chunkSize must be positive',
+        type: Smb2ErrorType.invalidParam,
+        path: path,
+      );
+    }
+    final RandomAccessFile input;
+    final int size;
+    try {
+      input = await File(source).open();
+      size = await input.length();
+    } on FileSystemException catch (e, st) {
+      throw Smb2Exception(
+        'Cannot read $source: ${e.message}',
+        type: e.osError?.errorCode == 2
+            ? Smb2ErrorType.notFound
+            : Smb2ErrorType.io,
+        path: path,
+        cause: e,
+        stackTrace: st,
+      );
+    }
+    Stream<Uint8List> read() async* {
+      while (true) {
+        final chunk = await input.read(chunkSize);
+        if (chunk.isEmpty) return;
+        yield chunk;
+      }
+    }
+
+    try {
+      return await _viaPart(
+        path,
+        (part) => streamWrite(
+          part,
+          read(),
+          length: size,
+          onProgress: onProgress,
+          cancelToken: cancelToken,
+        ),
+        cancelToken,
+      );
+    } on FileSystemException catch (e, st) {
+      throw Smb2Exception(
+        'Cannot read $source: ${e.message}',
+        type: Smb2ErrorType.io,
+        path: path,
+        cause: e,
+        stackTrace: st,
+      );
+    } finally {
+      await input.close().catchError((Object _) => input);
+    }
+  }
+
+  /// Runs [write] on a new temporary path next to [path], then renames it
+  /// over [path]; on any failure removes the temporary file, as far as the
+  /// connection allows, and rethrows.
+  Future<T> _viaPart<T>(
+    String path,
+    Future<T> Function(String part) write,
+    Smb2CancelToken? cancelToken, {
+    bool overwrite = true,
+  }) async {
+    final part =
+        '$path.part-${Random().nextInt(1 << 32).toRadixString(16).padLeft(8, '0')}';
+    try {
+      final result = await write(part);
+      cancelToken?.throwIfCancelled(path: path);
+      await rename(part, path, overwrite: overwrite);
+      return result;
+    } catch (_) {
+      if (!_closed) {
+        await _run<void>(
+          Op.deleteFile,
+          [part],
+          path: part,
+        ).catchError((Object _) {}, test: (e) => e is Smb2Exception);
+      }
+      rethrow;
+    }
+  }
+
+  // ─── Copies and trees ──────────────────────────────────────────────────
+
+  /// Copies the file [source] to [destination] on the share and returns
+  /// the bytes copied.
+  ///
+  /// The data passes through this machine (SMB2 has no server-side copy
+  /// that every server offers): [source] is streamed as [streamFile] reads
+  /// it and written to a temporary file next to [destination], which takes
+  /// its place once complete. Without [overwrite], an existing
+  /// [destination] fails with [Smb2ErrorType.alreadyExists], before any data
+  /// is read and again at the final rename. [onProgress] gets the bytes
+  /// written so far and the size of [source]. A failure or a cancellation
+  /// removes the temporary file and leaves [destination] as it was.
+  Future<int> copy(
+    String source,
+    String destination, {
+    bool overwrite = false,
+    int chunkSize = defaultChunkSize,
+    void Function(int copied, int total)? onProgress,
+    Smb2CancelToken? cancelToken,
+  }) async {
+    final from = await stat(source, cancelToken: cancelToken);
+    if (from.isDirectory) {
+      throw Smb2Exception(
+        'Is a directory: copy it with copyTree',
+        type: Smb2ErrorType.isADirectory,
+        path: source,
+      );
+    }
+    if (!overwrite && await exists(destination, cancelToken: cancelToken)) {
+      throw Smb2Exception(
+        'The destination exists',
+        type: Smb2ErrorType.alreadyExists,
+        path: destination,
+      );
+    }
+    return _viaPart(
+      destination,
+      (part) => streamWrite(
+        part,
+        streamFile(source, chunkSize: chunkSize, cancelToken: cancelToken),
+        length: from.size,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+      ),
+      cancelToken,
+      overwrite: overwrite,
+    );
+  }
+
+  /// Copies the directory [source], with everything below it, to
+  /// [destination] and returns the bytes copied.
+  ///
+  /// Lists the whole tree first, so [onProgress] gets the bytes copied so
+  /// far and the total of all the files. Directories are created as needed
+  /// and merge with existing ones; files are copied one at a time as
+  /// [copy] does, and an existing file fails the copy unless [overwrite]
+  /// is set. Symbolic links are skipped. A failure stops the copy and
+  /// leaves what was copied before it.
+  Future<int> copyTree(
+    String source,
+    String destination, {
+    bool overwrite = false,
+    int chunkSize = defaultChunkSize,
+    void Function(int copied, int total)? onProgress,
+    Smb2CancelToken? cancelToken,
+  }) async {
+    final from = await stat(source, cancelToken: cancelToken);
+    if (!from.isDirectory) {
+      throw Smb2Exception(
+        'Not a directory: copy it with copy',
+        type: Smb2ErrorType.notADirectory,
+        path: source,
+      );
+    }
+    final entries = await streamDirectory(
+      source,
+      recursive: true,
+      cancelToken: cancelToken,
+    ).toList();
+    final total = entries
+        .where((e) => e.isFile)
+        .fold<int>(0, (sum, e) => sum + e.size);
+    final src = _segments(source).join('/');
+    final dst = _segments(destination).join('/');
+    String under(String root, String rel) => root.isEmpty ? rel : '$root/$rel';
+    await mkdir(dst, recursive: true, cancelToken: cancelToken);
+    var done = 0;
+    onProgress?.call(0, total);
+    for (final e in entries) {
+      if (e.isDirectory) {
+        await mkdir(
+          under(dst, e.name),
+          recursive: true,
+          cancelToken: cancelToken,
+        );
+      } else if (e.isFile) {
+        final before = done;
+        done += await copy(
+          under(src, e.name),
+          under(dst, e.name),
+          overwrite: overwrite,
+          chunkSize: chunkSize,
+          onProgress: onProgress == null
+              ? null
+              : (copied, _) => onProgress(before + copied, total),
+          cancelToken: cancelToken,
+        );
+      }
+    }
+    return done;
+  }
+
+  /// The entries of the directory [path] as a stream, one listing request
+  /// at a time; with [recursive], the entries of every directory below it
+  /// too, each directory followed by its contents.
+  ///
+  /// Each entry's [Smb2DirEntry.name] is its path relative to [path]
+  /// (`Album/01.flac`), with `/` separators. Links are listed but not
+  /// followed. The stream lists the next directory only when the listener
+  /// asks for more, so pausing or cancelling the subscription stops it.
+  Stream<Smb2DirEntry> streamDirectory(
+    String path, {
+    bool recursive = false,
+    Smb2CancelToken? cancelToken,
+  }) async* {
+    final root = _segments(path).join('/');
+    final pending = <String>[''];
+    while (pending.isNotEmpty) {
+      final rel = pending.removeLast();
+      final entries = await listDirectory(
+        rel.isEmpty ? root : (root.isEmpty ? rel : '$root/$rel'),
+        cancelToken: cancelToken,
+      );
+      final dirs = <String>[];
+      for (final e in entries) {
+        final name = rel.isEmpty ? e.name : '$rel/${e.name}';
+        yield Smb2DirEntry(name: name, stat: e.stat);
+        if (recursive && e.isDirectory) dirs.add(name);
+      }
+      // Depth first, in listing order.
+      pending.addAll(dirs.reversed);
+    }
+  }
+
+  // ─── Change notification ───────────────────────────────────────────────
+
+  /// Watches the directory [path] for changes, and with [recursive]
+  /// everything below it, as a stream of [Smb2ChangeEvent]s.
+  ///
+  /// [filter] is a mask of [Smb2ChangeFilter] bits. The watch has a
+  /// connection of its own, in an isolate of its own, so it takes no
+  /// worker. After a network failure it reconnects, 1 to 32 seconds apart,
+  /// and sends a [Smb2ChangeAction.overflow] event, since changes may have
+  /// been missed: list the directory again then. Any other failure (the
+  /// directory was removed, the server refuses the watch) ends the stream
+  /// with an error, and so does [cancelToken], with a
+  /// [Smb2ErrorType.cancelled] one. Cancelling the subscription, or
+  /// [disconnect], ends the watch.
+  ///
+  /// While watched, the directory itself cannot be renamed or removed. The
+  /// changes the pool's own calls make are reported like anyone else's.
+  ///
+  /// ```dart
+  /// final sub = pool.watch('Inbox').listen((e) {
+  ///   if (e.action == Smb2ChangeAction.overflow) refresh();
+  ///   else print('${e.action.name} ${e.path}');
+  /// });
+  /// ```
+  Stream<Smb2ChangeEvent> watch(
+    String path, {
+    bool recursive = false,
+    int filter = Smb2ChangeFilter.defaults,
+    Smb2CancelToken? cancelToken,
+  }) {
+    late final StreamController<Smb2ChangeEvent> controller;
+    RawReceivePort? port;
+    Isolate? isolate;
+    SendPort? commands;
+    var stopping = false;
+    final exited = Completer<void>();
+    var unlink = _noop;
+
+    void finish([Object? error]) {
+      unlink();
+      if (controller.isClosed) return;
+      if (error != null) controller.addError(error);
+      unawaited(controller.close());
+    }
+
+    Future<void> stop() async {
+      if (stopping) return exited.future;
+      stopping = true;
+      _watchesRemove(stop);
+      commands?.send(null);
+      if (isolate != null) {
+        await exited.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => isolate?.kill(priority: Isolate.immediate),
+        );
+      }
+      port?.close();
+      finish();
+    }
+
+    controller = StreamController<Smb2ChangeEvent>(
+      onListen: () async {
+        if (_closed) {
+          finish(
+            Smb2Exception(
+              'The pool is closed',
+              type: Smb2ErrorType.state,
+              path: path,
+            ),
+          );
+          return;
+        }
+        if (filter <= 0 || filter > Smb2ChangeFilter.all) {
+          finish(
+            Smb2Exception(
+              'filter must be a mask of Smb2ChangeFilter bits',
+              type: Smb2ErrorType.invalidParam,
+              path: path,
+            ),
+          );
+          return;
+        }
+        if (cancelToken != null) {
+          if (cancelToken.isCancelled) {
+            finish(cancelToken.cancelledException(path: path));
+            return;
+          }
+          unlink = cancelToken.register(() {
+            finish(cancelToken.cancelledException(path: path));
+            unawaited(stop());
+          });
+        }
+        _watches.add(stop);
+        port = RawReceivePort((Object? m) {
+          switch (m) {
+            case SendPort():
+              commands = m;
+              if (stopping) m.send(null);
+            case List<Smb2ChangeEvent>():
+              if (!controller.isClosed) m.forEach(controller.add);
+            case Failure():
+              finish(m.toException());
+            case null:
+              // onExit.
+              if (!exited.isCompleted) exited.complete();
+              port?.close();
+              _watchesRemove(stop);
+              finish();
+            case List<Object?>(:final first):
+              // onError: [error, stack]; onExit follows.
+              finish(
+                Smb2Exception(
+                  'The watch isolate failed: $first',
+                  type: Smb2ErrorType.connection,
+                  path: path,
+                  cause: first,
+                ),
+              );
+          }
+        }, 'dart_smb2 watch');
+        try {
+          isolate = await Isolate.spawn(
+            watchMain,
+            WatchInit(
+              port!.sendPort,
+              _params,
+              path: path,
+              recursive: recursive,
+              filter: filter,
+            ),
+            onExit: port!.sendPort,
+            onError: port!.sendPort,
+            debugName: 'dart_smb2 watch',
+          );
+        } catch (e) {
+          port?.close();
+          _watchesRemove(stop);
+          finish(
+            Smb2Exception(
+              'Cannot spawn the watch isolate: $e',
+              type: Smb2ErrorType.state,
+              path: path,
+              cause: e,
+            ),
+          );
+        }
+      },
+      onCancel: stop,
+    );
+    return controller.stream;
+  }
+
+  void _watchesRemove(Future<void> Function() stop) => _watches.remove(stop);
 
   /// Closes every worker: each closes its handles and logs off.
   ///
@@ -796,6 +1310,7 @@ final class Smb2Pool {
     }
     _refusalRetry?.cancel();
     _refusalRetry = null;
+    await Future.wait([for (final stop in _watches.toList()) stop()]);
     // Wait for the reconnects so nothing outlives this call.
     await Future.wait(_reconnects.toList());
     await Future.wait(_slots.map((s) => s.worker.close()));
@@ -1141,6 +1656,7 @@ T _valueOnly<T>(Slot _, T value) => value;
 const _mutates = {
   Op.deleteFile,
   Op.rename,
+  Op.link,
   Op.rmdir,
   Op.truncate,
   Op.setFileTimes,
@@ -1159,6 +1675,12 @@ String _pathKey(String path) => path
     .toLowerCase();
 
 final _slashes = RegExp('/{2,}');
+
+/// The non-empty segments of [path], `\` taken as `/`.
+List<String> _segments(String path) => [
+  for (final s in path.replaceAll(r'\', '/').split('/'))
+    if (s.isNotEmpty) s,
+];
 final _edgeSlashes = RegExp(r'^/|/$');
 
 void _noop() {}

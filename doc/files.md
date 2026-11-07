@@ -11,6 +11,16 @@ for (final e in entries) {
 
 The listing carries each entry's metadata, so no request per entry is needed. `.` and `..` are left out. `Smb2Stat.isHidden` reports the server's hidden attribute (Samba sets it on dot files by default).
 
+### Streaming a listing, or a whole tree
+
+```dart
+await for (final e in pool.streamDirectory('Album', recursive: true)) {
+  print('${e.name} ${e.size}'); // 'CD1/01 - Intro.flac' ...
+}
+```
+
+`streamDirectory` lists one directory per request, and the next one only when the listener asks for more, so pausing or cancelling the subscription stops it. With `recursive`, each directory is followed by its contents, and each entry's `name` is its path relative to the directory asked for. Links are listed, not followed.
+
 ## Stat, size and existence
 
 ```dart
@@ -46,4 +56,59 @@ await pool.rmdir('Backup/2026');
 
 `rmdir` fails with `notEmpty` while the directory has entries and with `notADirectory` on a file. `deleteFile` fails with `isADirectory` on a directory, or a link to one, which `rmdir` removes. Set times after the file's write handles are closed: the server refreshes the modified time on write and close.
 
-After a dropped connection, `mkdir`, `rmdir`, `deleteFile` and `rename` are not repeated. See [Errors and cancellation](https://pub.dev/documentation/dart_smb2/latest/topics/Errors%20and%20cancellation-topic.html).
+After a dropped connection, `mkdir`, `rmdir`, `deleteFile`, `rename`, `link` and `symlink` are not repeated. See [Errors and cancellation](https://pub.dev/documentation/dart_smb2/latest/topics/Errors%20and%20cancellation-topic.html).
+
+### Renaming over an existing file
+
+```dart
+await pool.rename('Notes/todo.txt.new', 'Notes/todo.txt', overwrite: true);
+```
+
+`rename` fails with `alreadyExists` when the new name is taken. With `overwrite: true` an existing file is replaced in the same request, so readers find either the old file or the new one, never none: write to a temporary name, then rename over the real one. A directory is never replaced, and a file another client holds open is not replaced either (`accessDenied` or `inUse`).
+
+### Trees
+
+```dart
+await pool.mkdir('Backup/2026/11', recursive: true);
+await pool.rmdir('Backup/2025', recursive: true);
+```
+
+`mkdir(recursive: true)` creates the missing directories above the path too, and takes an existing directory as done, like `mkdir -p`. `rmdir(recursive: true)` removes everything below the directory first, like `rm -r`: files, links (never what they point at) and directories, as many at once as the pool has workers. It stops at the first entry it cannot remove. Both are repeated after a dropped connection, since an entry already made, or already gone, is not a failure.
+
+### Links
+
+```dart
+await pool.link('Music/a.flac', 'Favourites/a.flac');   // a hard link
+await pool.symlink('../Music', 'Shortcuts/Music', directory: true);
+final target = await pool.readlink('Shortcuts/Music');
+```
+
+A hard link is a second name for the same file, on the same share. A symbolic link stores its target as given: relative to the link's directory, or absolute when it starts with a separator or a drive letter. Pass `directory: true` for a link to a directory, which Windows types apart. Windows lets only administrators create symbolic links by default, and Samba keeps one only on a share that allows it; elsewhere `symlink` fails with `accessDenied` or `notSupported`.
+
+## Copying
+
+```dart
+await pool.copy('Album/01.flac', 'Backup/01.flac',
+    onProgress: (copied, total) => print('$copied / $total'));
+await pool.copyTree('Album', 'Backup/Album', overwrite: true);
+```
+
+SMB2 has no copy that every server offers, so the data passes through your machine: `copy` streams the file as `streamFile` reads it and writes it to a temporary file next to the destination, which takes the destination's place once complete. Without `overwrite`, an existing destination fails with `alreadyExists` before any data is read. A failure or a cancellation removes the temporary file. `copyTree` lists the whole tree first, so its progress counts the bytes of every file, then creates the directories and copies the files one at a time. Symbolic links are skipped.
+
+## Watching a directory
+
+```dart
+final sub = pool.watch('Inbox', recursive: true).listen((e) {
+  if (e.action == Smb2ChangeAction.overflow) {
+    reload(); // changes were lost: list again
+  } else {
+    print('${e.action.name} ${e.path}');
+  }
+});
+// Later:
+await sub.cancel();
+```
+
+The server reports each change to the directory (and with `recursive` to everything below it) as it happens: created, removed, modified, and renamed, as a `renamedFrom` then a `renamedTo` event. `filter` picks what counts as a change, as a mask of `Smb2ChangeFilter` bits (names, sizes and writes by default). Each event's `path` is share-relative.
+
+The watch runs on a connection of its own, in an isolate of its own, so it takes no worker. After a dropped connection it reconnects by itself and sends an `overflow` event, since changes may have been missed; the server sends one too when changes come faster than it can report them. Any other failure ends the stream with an error: `notFound` for a missing directory, `notADirectory` for a file. Cancelling the subscription, the `cancelToken` or `disconnect` ends the watch. While watched, the directory itself cannot be renamed or removed.

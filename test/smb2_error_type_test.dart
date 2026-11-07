@@ -200,19 +200,6 @@ void main() {
     test('nothing to go on is unknown', () {
       expect(Smb2ErrorType.fromFailure(message: ''), Smb2ErrorType.unknown);
     });
-
-    test('the 0.1.x classify still works', () {
-      expect(
-        // ignore: deprecated_member_use_from_same_package
-        Smb2ErrorType.classify('Read from socket failed', 2),
-        Smb2ErrorType.connection,
-      );
-      expect(
-        // ignore: deprecated_member_use_from_same_package
-        Smb2ErrorType.classify('Failed', 2),
-        Smb2ErrorType.notFound,
-      );
-    });
   });
 
   group('failures without a status', () {
@@ -265,11 +252,6 @@ void main() {
         );
       }
     });
-
-    test('the deprecated fileNotFound is notFound', () {
-      // ignore: deprecated_member_use_from_same_package
-      expect(Smb2ErrorType.fileNotFound, Smb2ErrorType.notFound);
-    });
   });
 
   group('Smb2Exception', () {
@@ -314,14 +296,6 @@ void main() {
         'Smb2Exception(notFound) status=0xc0000034 errno=2 path=a/b Stat failed',
       );
       expect(const Smb2Exception('m').toString(), 'Smb2Exception(unknown) m');
-    });
-
-    test('the deprecated getters still answer', () {
-      const e = Smb2Exception('x', type: Smb2ErrorType.connection, errno: 104);
-      // ignore: deprecated_member_use_from_same_package
-      expect(e.isConnectionError, isTrue);
-      // ignore: deprecated_member_use_from_same_package
-      expect(e.errorCode, 104);
     });
   });
 }

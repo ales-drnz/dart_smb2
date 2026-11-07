@@ -77,14 +77,6 @@ enum Smb2ErrorType {
   bool get isNetworkFailure =>
       this == Smb2ErrorType.connection || this == Smb2ErrorType.timeout;
 
-  /// Same as [isNetworkFailure].
-  @Deprecated('Use isNetworkFailure. Will be removed in 0.3.0.')
-  bool get isConnectionError => isNetworkFailure;
-
-  /// The former name of [notFound].
-  @Deprecated('Use notFound. Will be removed in 0.3.0.')
-  static const Smb2ErrorType fileNotFound = Smb2ErrorType.notFound;
-
   /// The type of an NTSTATUS code, or [unknown] for one not listed.
   static Smb2ErrorType fromNtStatus(int status) =>
       _ntStatus[status & 0xFFFFFFFF] ?? Smb2ErrorType.unknown;
@@ -141,11 +133,6 @@ enum Smb2ErrorType {
     if (errno != null && errno > 0) return fromErrno(errno, os: os);
     return Smb2ErrorType.unknown;
   }
-
-  /// The type of a libsmb2 [message] and the [errno] of the same failure.
-  @Deprecated('Use fromFailure. Will be removed in 0.3.0.')
-  static Smb2ErrorType classify(String message, int errno) =>
-      fromFailure(message: message, errno: errno);
 
   /// The NT status libsmb2 quotes in [message] as `(0x........)`, if any.
   static int? ntStatusInMessage(String message) {

@@ -1,21 +1,27 @@
 {
-  "release": "r10",
+  "release": "r11",
   "libsmb2": {
-    "commit": "4d9ce67863332462236d86bf76c85617a0b2897d",
-    "version": "7.0.0-dev+git20261105.4d9ce67",
-    "tarballSha256": "6c34870b2aef319b5415e9912b406f922e03f127c072764ceca78139e6d94b7a"
+    "commit": "a52c1571a1ff223bde5bb3df9fec7af5ce3855d4",
+    "version": "7.0.0-dev+git20261107.a52c157",
+    "tarballSha256": "c150c934c1353f1f903261c8c51cd605cd3f59beff1e4619240cf059729f18fb"
+  },
+  "openssl": {
+    "version": "3.5.9",
+    "tarballSha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
   },
   "source": {
     "repository": "https://github.com/ales-drnz/libsmb2-scripts",
-    "commit": "eca28a3ef007d6c268ebfd4a4950a0c28de6335c"
+    "commit": ""
   },
   "license": "LGPL-2.1-or-later",
+  "licenseNotes": "libsmb2 is LGPL-2.1-or-later; the OpenSSL libcrypto linked statically into every binary is Apache-2.0 (LICENSE-OpenSSL.txt).",
   "patches": {
     "shared": [
       "patch_compound_callbacks.py",
       "patch_create_data_leaks.py",
       "patch_nterror_reporting.py",
       "patch_poll_eintr.py",
+      "patch_rename_replace.py",
       "patch_rmdir_disposition.py",
       "patch_truncate_non_directory.py",
       "patch_unlink_non_directory.py",
@@ -61,26 +67,35 @@
     "smb2_readlink",
     "smb2_truncate",
     "smb2_rename",
+    "smb2_link",
+    "smb2_symlink",
     "smb2_unlink",
     "smb2_mkdir",
     "smb2_rmdir",
     "smb2_utimes",
+    "smb2_rename2",
+    "smb2_get_fd",
+    "smb2_which_events",
+    "smb2_service",
+    "smb2_notify_change_filehandle_async",
+    "free_smb2_file_notify_change_information",
     "smb2_share_enum_sync",
     "smb2_free_data"
   ],
   "assets": {
-    "libsmb2_android-arm64-v8a.so": "af27ac23a6c25843dbd3ae47023f1131b9593344125238374ed5e5577e33d73e",
-    "libsmb2_android-armeabi-v7a.so": "9074910ca1f1bc347f3b65f1a92d6b7f77ec70a9280918e4f7f22ea2f707612e",
-    "libsmb2_android-x86_64.so": "5db4be4402f379f6091f3710d7230de1bbba54c8360054930e915a418cbbf01f",
-    "libsmb2_ios.xcframework.zip": "f7e636ed850a8da3d7291ea75195eabde961772bfb8a43b8a06957fb9e1c196d",
-    "libsmb2_linux-aarch64.so": "ed0b1858e97f74b117206a01aa2fc1be70c45027bb7fa92702ab4eee09e9aa23",
-    "libsmb2_linux-x86_64.so": "4612ed4499f4c066d0db295679469c62545c6252849bfa61eb5f45ec1bbd3577",
-    "libsmb2_macos.xcframework.zip": "8eb57491aba4108e19646c005227cac39382585ae27c2dfee5627fe02ce1028c",
-    "libsmb2_windows-arm64.dll": "3ce1899948bdc16108d18669ca3d4c7428cfa31b7b9efab72a4dff1d40cf7819",
-    "libsmb2_windows-x86_64.dll": "e0aba8b2feb469b053abbfa6c305b362fee7a88c13edcddddf430d33a920377c"
+    "libsmb2_android-arm64-v8a.so": "",
+    "libsmb2_android-armeabi-v7a.so": "",
+    "libsmb2_android-x86_64.so": "",
+    "libsmb2_ios.xcframework.zip": "",
+    "libsmb2_linux-aarch64.so": "",
+    "libsmb2_linux-x86_64.so": "",
+    "libsmb2_macos.xcframework.zip": "",
+    "libsmb2_windows-arm64.dll": "",
+    "libsmb2_windows-x86_64.dll": ""
   },
   "licenses": {
     "COPYING": "fd87b0d474243809ec4b41c6c8e4a6563c143e5c1e1f4039adc54c0151babf76",
-    "LICENCE-LGPL-2.1.txt": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+    "LICENCE-LGPL-2.1.txt": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551",
+    "LICENSE-OpenSSL.txt": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
   }
 }

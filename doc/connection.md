@@ -27,7 +27,7 @@ The workers connect in parallel. When one of them cannot, the others are closed 
 | `user`, `password`, `domain` | none | NTLM credentials. No user, or a null password, means an anonymous logon; `password: ''` logs on to an account without a password |
 | `workers` | 4 | Isolates, each with its own connection |
 | `timeout` | 30 s | Bounds every request, the connection included |
-| `seal` | `false` | Require SMB3 encryption |
+| `seal` | `false` | Require SMB3 encryption: AES-256-GCM or AES-128-GCM on SMB 3.1.1, AES-128-CCM on 3.0 |
 | `signing` | `false` | Require signed messages |
 | `version` | `Smb2Version.any` | The dialect to negotiate, from `v202` to `v311` |
 
@@ -42,6 +42,18 @@ final secure = await Smb2Pool.connect(
   timeout: const Duration(seconds: 10),
 );
 ```
+
+## Encryption and signing
+
+libsmb2 signs and encrypts through OpenSSL's libcrypto, which the bundled library carries. With `seal: true` on SMB 3.1.1 it offers AES-256-GCM, AES-128-GCM and AES-128-CCM, in that order, and the server picks one (Windows Server 2025 picks AES-256-GCM, Samba AES-128-GCM by default); SMB 3.0 and 3.0.2 always use AES-128-CCM. The order is libsmb2's: it has no setting for it, so neither has dart_smb2. Signing uses AES-CMAC on SMB 3, HMAC-SHA256 on SMB 2.
+
+### Windows 11 24H2 and Windows Server 2025
+
+From Windows 11 24H2 and Windows Server 2025 on, a Windows machine that shares folders requires every session to be signed, and its guest account is off:
+
+- libsmb2 signs whenever the server asks for it, so these shares work without `signing: true`; set it to refuse servers that do not sign;
+- a signed session needs a real logon: without a user (anonymous) or as guest there is no key to sign with, and the connection fails with `auth` or `accessDenied`. Pass an account of that machine, or a Microsoft account's email and password;
+- the same versions also stop Windows itself, as a client, from logging on to other servers as guest ("insecure guest logons"). That rule is Windows' own: dart_smb2 can still reach a NAS share that allows guests, unless the NAS requires signing too.
 
 ## Listing the shares of a server
 

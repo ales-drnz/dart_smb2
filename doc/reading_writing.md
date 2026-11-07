@@ -94,7 +94,29 @@ final upload = File('/storage/music/01 - Intro.flac')
 await pool.streamWrite('Backup/01 - Intro.flac', upload);
 ```
 
-The chunks go through one handle, each at its own offset, so only one is in memory at a time and a reconnect repeats just the chunk that failed.
+The chunks go through one handle, each at its own offset, so only one is in memory at a time and a reconnect repeats just the chunk that failed. `onProgress` gets the bytes the server has taken after each chunk and the `length` you pass, or -1 without one:
+
+```dart
+final file = File('/storage/music/01 - Intro.flac');
+await pool.streamWrite(
+  'Backup/01 - Intro.flac',
+  file.openRead().map(Uint8List.fromList),
+  length: await file.length(),
+  onProgress: (sent, total) => print('${sent * 100 ~/ total}%'),
+);
+```
+
+### Uploading a file
+
+```dart
+final sent = await pool.uploadFile(
+  '/storage/music/01 - Intro.flac',
+  'Backup/01 - Intro.flac',
+  onProgress: (sent, total) => print('${sent * 100 ~/ total}%'),
+);
+```
+
+The counterpart of `downloadToFile`: the file is read in chunks of `chunkSize` and written to a temporary file next to the destination, which replaces the destination only once complete (a rename with `overwrite`), so readers of the destination never see half a file. A failure or a cancellation removes the temporary file and leaves the destination as it was.
 
 ### Write handles
 

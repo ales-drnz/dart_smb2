@@ -51,8 +51,14 @@ enum Op {
   /// Deletes a file: `[path]`.
   deleteFile,
 
-  /// Renames: `[oldPath, newPath]`.
+  /// Renames: `[oldPath, newPath, overwrite]`.
   rename,
+
+  /// Creates a hard link: `[existingPath, newPath]`.
+  link,
+
+  /// Creates a symbolic link: `[target, linkPath, directory]`.
+  symlink,
 
   /// Truncates: `[path, length]`.
   truncate,

@@ -173,7 +173,21 @@ final class _Server {
         client.deleteFile(a[0]! as String);
         return null;
       case Op.rename:
-        client.rename(a[0]! as String, a[1]! as String);
+        client.rename(
+          a[0]! as String,
+          a[1]! as String,
+          overwrite: a[2]! as bool,
+        );
+        return null;
+      case Op.link:
+        client.link(a[0]! as String, a[1]! as String);
+        return null;
+      case Op.symlink:
+        client.symlink(
+          a[0]! as String,
+          a[1]! as String,
+          directory: a[2]! as bool,
+        );
         return null;
       case Op.truncate:
         client.truncate(a[0]! as String, a[1]! as int);

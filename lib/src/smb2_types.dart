@@ -298,3 +298,134 @@ final class Smb2StatVfs {
   String toString() =>
       'Smb2StatVfs(total: $totalSize, free: $freeSize, available: $availableSize)';
 }
+
+/// What a change notification watches for, as a bit mask
+/// (`CompletionFilter`, MS-SMB2 2.2.35), for [Smb2Pool.watch] and
+/// [Smb2Client.watch].
+///
+/// {@category Files and directories}
+abstract final class Smb2ChangeFilter {
+  /// A file is created, removed or renamed.
+  static const int fileName = 0x001;
+
+  /// A directory is created, removed or renamed.
+  static const int dirName = 0x002;
+
+  /// The attributes of an entry change.
+  static const int attributes = 0x004;
+
+  /// The size of a file changes.
+  static const int size = 0x008;
+
+  /// The last-write time of an entry changes.
+  static const int lastWrite = 0x010;
+
+  /// The last-access time of an entry changes.
+  static const int lastAccess = 0x020;
+
+  /// The creation time of an entry changes.
+  static const int creation = 0x040;
+
+  /// The security descriptor of an entry changes.
+  static const int security = 0x100;
+
+  /// Names, sizes and writes: what a file browser needs to stay current.
+  static const int defaults = fileName | dirName | size | lastWrite;
+
+  /// Every change the filter can name, alternate data streams included.
+  static const int all = 0xFFF;
+}
+
+/// What happened to an entry, in a [Smb2ChangeEvent].
+///
+/// {@category Files and directories}
+enum Smb2ChangeAction {
+  /// The entry was created, or moved into the directory.
+  added(1),
+
+  /// The entry was removed, or moved out of the directory.
+  removed(2),
+
+  /// The entry's data or metadata changed.
+  modified(3),
+
+  /// The entry was renamed: this is its old name. A [renamedTo] event with
+  /// the new name follows.
+  renamedFrom(4),
+
+  /// The entry was renamed: this is its new name.
+  renamedTo(5),
+
+  /// An alternate data stream of the entry was created.
+  streamAdded(6),
+
+  /// An alternate data stream of the entry was removed.
+  streamRemoved(7),
+
+  /// An alternate data stream of the entry changed.
+  streamModified(8),
+
+  /// Changes were lost: the server had more than it could report, or the
+  /// watch reconnected. List the directory again to catch up.
+  overflow(0);
+
+  /// The `Action` value of `FILE_NOTIFY_INFORMATION` (MS-FSCC 2.7.1).
+  final int value;
+
+  const Smb2ChangeAction(this.value);
+
+  /// The action of a `FILE_NOTIFY_INFORMATION` value; [overflow] for one
+  /// that is not listed.
+  static Smb2ChangeAction fromValue(int value) => switch (value) {
+    1 => added,
+    2 => removed,
+    3 => modified,
+    4 => renamedFrom,
+    5 => renamedTo,
+    6 => streamAdded,
+    7 => streamRemoved,
+    8 => streamModified,
+    _ => overflow,
+  };
+}
+
+/// A change in a watched directory, from [Smb2Pool.watch] or
+/// [Smb2Watcher.next].
+///
+/// {@category Files and directories}
+@immutable
+final class Smb2ChangeEvent {
+  /// What happened.
+  final Smb2ChangeAction action;
+
+  /// The share-relative path of the entry, with `/` separators. For
+  /// [Smb2ChangeAction.overflow], the watched directory.
+  final String path;
+
+  /// A change of [action] at [path].
+  const Smb2ChangeEvent(this.action, this.path);
+
+  @override
+  bool operator ==(Object other) =>
+      other is Smb2ChangeEvent && other.action == action && other.path == path;
+
+  @override
+  int get hashCode => Object.hash(action, path);
+
+  @override
+  String toString() => 'Smb2ChangeEvent(${action.name}, $path)';
+}
+
+/// The share-relative path of [name], an entry a change notification
+/// reports relative to the watched directory [dir] (with `\` separators
+/// for a recursive watch).
+@internal
+String changePath(String dir, String name) {
+  final base = dir
+      .replaceAll(r'\', '/')
+      .replaceFirst(RegExp('^/+'), '')
+      .replaceFirst(RegExp(r'/+$'), '');
+  final rel = name.replaceAll(r'\', '/');
+  if (rel.isEmpty) return base;
+  return base.isEmpty ? rel : '$base/$rel';
+}
