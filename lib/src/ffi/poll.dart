@@ -35,7 +35,30 @@ final class _WsaPollFd extends Struct {
   external int revents;
 }
 
-typedef _PosixPollC = Int Function(Pointer<_PollFd>, UnsignedLong, Int);
+/// `nfds_t`: unsigned long on glibc, unsigned int on bionic and Darwin.
+@AbiSpecificIntegerMapping({
+  Abi.androidArm: Uint32(),
+  Abi.androidArm64: Uint32(),
+  Abi.androidIA32: Uint32(),
+  Abi.androidX64: Uint32(),
+  Abi.androidRiscv64: Uint32(),
+  Abi.iosArm: Uint32(),
+  Abi.iosArm64: Uint32(),
+  Abi.iosX64: Uint32(),
+  Abi.macosArm64: Uint32(),
+  Abi.macosX64: Uint32(),
+  Abi.linuxArm: Uint32(),
+  Abi.linuxIA32: Uint32(),
+  Abi.linuxRiscv32: Uint32(),
+  Abi.linuxArm64: Uint64(),
+  Abi.linuxX64: Uint64(),
+  Abi.linuxRiscv64: Uint64(),
+})
+final class _NfdsT extends AbiSpecificInteger {
+  const _NfdsT();
+}
+
+typedef _PosixPollC = Int Function(Pointer<_PollFd>, _NfdsT, Int);
 typedef _PosixPoll = int Function(Pointer<_PollFd>, int, int);
 typedef _WsaPollC = Int Function(Pointer<_WsaPollFd>, Uint32, Int);
 typedef _WsaPoll = int Function(Pointer<_WsaPollFd>, int, int);
