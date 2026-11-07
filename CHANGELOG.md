@@ -5,19 +5,21 @@ Removes what 0.2.0 deprecated and adds watches, links, copies and tree helpers. 
 ### Breaking
 - The names deprecated in 0.2.0 are gone: `Smb2Client.open()`, `Smb2Handle.isValid`, `openFileHandle`, `openFileHandleWrite`, `readHandle`, `writeHandle`, `fsync` and `ftruncate` of `Smb2Client`, `timeoutSeconds:`, the `Smb2Pool.listShares()` instance method, `isCanceled:`, `Smb2PoolHandle.closed` and `refreshFinalizer()`, `Smb2Exception.isConnectionError` and `errorCode`, `Smb2ErrorType.isConnectionError`, `fileNotFound` and `classify()`.
 - `Smb2Pool.streamWrite()` returns the bytes written, as a `Future<int>`.
-- The libraries are `libsmb2-r11`, about ten times larger: each carries OpenSSL's libcrypto.
+- The libraries are `libsmb2-r11`, five to thirteen times larger: each carries OpenSSL's libcrypto.
+- A libsmb2 of your own, set through `hooks.user_defines`, must be r11 or later: 0.3.0 binds `smb2_rename2`, which only the patched r11 has.
 
 ### Added
-- `Smb2Pool.watch()`, a stream of the changes to a directory (`Smb2ChangeEvent`, `Smb2ChangeAction`, `Smb2ChangeFilter`), on a connection of its own that reconnects by itself, and `Smb2Client.watch()` with `Smb2Watcher`.
+- `Smb2Pool.watch()`, a stream of the changes to a directory (`Smb2ChangeEvent`, `Smb2ChangeAction`, `Smb2ChangeFilter`), on a connection of its own that reconnects by itself, and `Smb2Client.watch()` with `Smb2Watcher`. Ending a watch waits for its request in flight, up to about 15 seconds when the server hangs.
 - `rename(overwrite: true)`, which replaces an existing file in one request.
 - `link()` for hard links and `symlink()` for symbolic links, in `Smb2Pool` and `Smb2Client`.
 - `mkdir(recursive: true)` and `rmdir(recursive: true)` in `Smb2Pool`, like `mkdir -p` and `rm -r`. `rmdir` refuses the share root, stops at the first failure, and never goes through a link to a directory that Samba follows.
-- `Smb2Pool.streamDirectory()`, a listing as a stream, of a whole tree with `recursive`, which a link never makes loop.
+- `Smb2Pool.streamDirectory()`, a listing as a stream, of a whole tree with `recursive`, where a link never makes a loop.
 - `Smb2Stat.fileId`, the server's id of the file.
 - `Smb2Pool.copy()` and `copyTree()`, with progress.
 - `Smb2Pool.uploadFile()`, the counterpart of `downloadToFile()`, and `onProgress` and `length` on `streamWrite()`.
 
 ### Changed
+- The build hook needs `code_assets` ^2.2.0.
 - When `downloadToFile()` cannot write the local file, or `uploadFile()` cannot read it, `Smb2Exception.path` is that local path, not the remote one.
 
 ### libsmb2-r11
@@ -36,9 +38,6 @@ Removes what 0.2.0 deprecated and adds watches, links, copies and tree helpers. 
 - The guides cover watches, links, copies, trees, uploads, renames that replace, encryption, and what Windows 11 24H2 and Windows Server 2025 require: signed sessions, and no guest logon.
 - NOTICE lists OpenSSL, whose Apache-2.0 licence ships with the libraries.
 - `Smb2Client` explains why a request in flight cannot be cancelled.
-
-### Dependencies
-- `code_assets` ^2.2.0 and `lints` ^6.1.0.
 
 ## [0.2.5] - 5-11-2026
 

@@ -34,15 +34,21 @@ instead of a `Future<void>`. Awaiting it needs no change; code that passes
 it where a `Future<void> Function()` is expected, such as a tear-off,
 does.
 
+## The path of a local failure
+
+When `downloadToFile()` cannot write the local file, or `uploadFile()`
+cannot read it, `Smb2Exception.path` is that local path, not the remote
+one.
+
 ## libsmb2-r11
 
 The hook bundles `libsmb2-r11`, whose libraries carry OpenSSL's libcrypto
-for AES-GCM encryption: they are about ten times larger (2 to 3.5 MB per
-architecture). An app that shows its licences adds OpenSSL's Apache-2.0
-text, `LICENSE-OpenSSL.txt` of the release, beside libsmb2's (see
-NOTICE). A libsmb2 of your own that `hooks.user_defines` points at must
-be r11 or later: 0.3.0 binds `smb2_rename2`, which only the patched r11
-has, and the change notification calls.
+for AES-GCM encryption: they are five to thirteen times larger (1.3 to
+3.5 MB per architecture). An app that shows its licences adds OpenSSL's
+Apache-2.0 text, `LICENSE-OpenSSL.txt` of the release, beside libsmb2's
+(see NOTICE). A libsmb2 of your own that `hooks.user_defines` points at
+must be r11 or later: 0.3.0 binds `smb2_rename2`, which only the patched
+r11 has, and the change notification calls.
 
 ## New in 0.3.0
 
@@ -52,7 +58,10 @@ Nothing here needs a change, but it may replace code of your own:
   overwrite: true)` replaces it in one request, with no moment without
   the file;
 - your own `mkdir -p` or recursive delete: `mkdir(path, recursive: true)`
-  and `rmdir(path, recursive: true)`;
+  and `rmdir(path, recursive: true)`. `rmdir` refuses the share root with
+  an `ArgumentError`, stops at the first entry it cannot remove, and fails
+  with `notSupported` before removing anything when the tree holds a link
+  to a directory that Samba follows;
 - a recursive listing: `streamDirectory(path, recursive: true)`;
 - copies through `streamFile` and `streamWrite`: `copy` and `copyTree`;
 - uploads through `streamWrite`: `uploadFile`, atomic and with progress;
