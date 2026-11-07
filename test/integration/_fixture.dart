@@ -80,6 +80,20 @@ Future<Smb2Pool> connectPool({
   timeout: timeout ?? const Duration(seconds: 30),
 );
 
+/// The sessions [user] has open on the container, from `smbstatus`.
+Future<int> sessionsOf(String user) async {
+  final status = await Process.run('docker', [
+    'exec',
+    'dart-smb2-test',
+    'smbstatus',
+    '-b',
+  ]);
+  return RegExp(
+    '^\\s*\\d+\\s+$user\\s',
+    multiLine: true,
+  ).allMatches(status.stdout as String).length;
+}
+
 /// A directory of its own on the share for one suite, so suites never see
 /// each other's files. Created by [create], removed with everything in it
 /// by [delete].

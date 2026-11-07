@@ -51,6 +51,10 @@ final class WatchInit {
 @visibleForTesting
 Duration debugWatchEchoInterval = const Duration(seconds: 30);
 
+/// The longest a watch's request may take: a stop waits for the one in
+/// flight, since the isolate is never killed.
+const Duration watchRequestTimeout = Duration(seconds: 5);
+
 /// Entry point of a watch isolate.
 ///
 /// Connects and starts the watch, then reports each batch of changes until
@@ -59,11 +63,20 @@ Duration debugWatchEchoInterval = const Duration(seconds: 30);
 /// and reports a [Smb2ChangeAction.overflow], since changes may have been
 /// missed meanwhile. Any other failure, or one before the first watch
 /// started, is sent as a [Failure] and ends the isolate.
+///
+/// Its requests time out after [watchRequestTimeout], or the pool's
+/// timeout when shorter, so a stop is seen within a few seconds.
 Future<void> watchMain(WatchInit init) async {
   final commands = ReceivePort();
   var stop = false;
   commands.listen((_) => stop = true);
   init.replies.send(commands.sendPort);
+  final p = init.params;
+  final timeout = p.timeout > Duration.zero && p.timeout < watchRequestTimeout
+      ? p.timeout
+      : watchRequestTimeout;
+  // A stop sent before the isolate started arrives here.
+  await Future<void>.delayed(Duration.zero);
 
   Smb2Client? client;
   Smb2Watcher? watcher;
@@ -86,7 +99,6 @@ Future<void> watchMain(WatchInit init) async {
     while (!stop) {
       try {
         if (watcher == null) {
-          final p = init.params;
           final c = client = Smb2Client()
             ..connect(
               host: p.host,
@@ -94,7 +106,7 @@ Future<void> watchMain(WatchInit init) async {
               user: p.user,
               password: p.password,
               domain: p.domain,
-              timeout: p.timeout,
+              timeout: timeout,
               seal: p.seal,
               signing: p.signing,
               version: p.version,

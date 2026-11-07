@@ -306,6 +306,50 @@ void main() {
       expect(await done, isEmpty);
     });
 
+    test('cancelling at once leaves no session behind', () async {
+      // Its own user, so the sessions of the other tests do not count.
+      final p = await Smb2Pool.connect(
+        host: server.host,
+        share: server.share,
+        user: emptyPasswordUser,
+        password: '',
+        workers: 1,
+      );
+      final sub = p.watch(scratch.dir).listen((_) {});
+      await sub.cancel();
+      await p.disconnect();
+      expect(await sessionsOf(emptyPasswordUser), 0);
+      // Still none once a leaked isolate would have connected.
+      await Future<void>.delayed(const Duration(seconds: 3));
+      expect(await sessionsOf(emptyPasswordUser), 0);
+    });
+
+    test('cancelling while the server hangs stops the watch', () async {
+      final proxy = await TcpProxy.start();
+      final p = await connectPool(workers: 1, host: proxy.host);
+      try {
+        final events = StreamIterator(p.watch(scratch.dir));
+        final writer = Timer.periodic(
+          const Duration(milliseconds: 300),
+          (_) => pool.writeFile(scratch.path('hang'), pattern(1)).ignore(),
+        );
+        try {
+          await collect(events, (got) => got.isNotEmpty);
+        } finally {
+          writer.cancel();
+        }
+        proxy.freeze();
+        final clock = Stopwatch()..start();
+        await events.cancel();
+        // The requests in flight time out, the isolate is not killed.
+        expect(clock.elapsed, lessThan(const Duration(seconds: 25)));
+      } finally {
+        proxy.thaw();
+        await p.disconnect();
+        await proxy.close();
+      }
+    });
+
     test('a dropped connection reconnects and reports an overflow', () async {
       final proxy = await TcpProxy.start();
       final p = await connectPool(workers: 1, host: proxy.host);

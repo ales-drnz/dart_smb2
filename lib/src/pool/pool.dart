@@ -1154,6 +1154,17 @@ final class Smb2Pool {
   /// [Smb2ErrorType.cancelled] one. Cancelling the subscription, or
   /// [disconnect], ends the watch.
   ///
+  /// A paused subscription, as `await for` and [StreamIterator] make
+  /// between events, keeps the changes that arrive meanwhile in memory, as
+  /// any stream does. Do not leave one paused for long on a busy directory:
+  /// cancel it, and watch again when needed.
+  ///
+  /// Ending the watch waits for its connection to finish the request in
+  /// flight and log off. The watch's requests time out after 5 seconds (or
+  /// the pool's timeout, when shorter), so when the server stops answering
+  /// this takes up to about 15 seconds; the isolate is never killed in a
+  /// native call.
+  ///
   /// While watched, the directory itself cannot be renamed or removed. The
   /// changes the pool's own calls make are reported like anyone else's.
   ///
@@ -1171,7 +1182,6 @@ final class Smb2Pool {
   }) {
     late final StreamController<Smb2ChangeEvent> controller;
     RawReceivePort? port;
-    Isolate? isolate;
     SendPort? commands;
     var stopping = false;
     final exited = Completer<void>();
@@ -1184,20 +1194,29 @@ final class Smb2Pool {
       unawaited(controller.close());
     }
 
-    Future<void> stop() async {
-      if (stopping) return exited.future;
-      stopping = true;
-      _watchesRemove(stop);
-      commands?.send(null);
-      if (isolate != null) {
-        await exited.future.timeout(
-          const Duration(seconds: 5),
-          onTimeout: () => isolate?.kill(priority: Isolate.immediate),
-        );
-      }
+    late final Future<void> Function() stop;
+
+    void gone() {
       port?.close();
-      finish();
+      _watchesRemove(stop);
+      if (!exited.isCompleted) exited.complete();
     }
+
+    // The isolate is never killed: one killed in a native call crashes the
+    // VM when libsmb2 then calls the notify callback. It stops at its next
+    // turn of the loop, once it has the stop message; until then the port
+    // stays open, so a stop sent before its SendPort arrived still reaches
+    // it.
+    stop = () async {
+      if (!stopping) {
+        stopping = true;
+        _watchesRemove(stop);
+        if (port == null) gone();
+        commands?.send(null);
+      }
+      await exited.future;
+      finish();
+    };
 
     controller = StreamController<Smb2ChangeEvent>(
       onListen: () async {
@@ -1243,9 +1262,7 @@ final class Smb2Pool {
               finish(m.toException());
             case null:
               // onExit.
-              if (!exited.isCompleted) exited.complete();
-              port?.close();
-              _watchesRemove(stop);
+              gone();
               finish();
             case List<Object?>(:final first):
               // onError: [error, stack]; onExit follows.
@@ -1260,7 +1277,7 @@ final class Smb2Pool {
           }
         }, 'dart_smb2 watch');
         try {
-          isolate = await Isolate.spawn(
+          await Isolate.spawn(
             watchMain,
             WatchInit(
               port!.sendPort,
@@ -1274,8 +1291,7 @@ final class Smb2Pool {
             debugName: 'dart_smb2 watch',
           );
         } catch (e) {
-          port?.close();
-          _watchesRemove(stop);
+          gone();
           finish(
             Smb2Exception(
               'Cannot spawn the watch isolate: $e',
@@ -1299,7 +1315,7 @@ final class Smb2Pool {
   /// does not finish within 5 seconds is killed, and they fail with a
   /// [Smb2ErrorType.connection] error). Calls waiting for a reconnect, and
   /// calls made later, fail with a [Smb2ErrorType.state] error. A reconnect
-  /// in progress is aborted.
+  /// in progress is aborted. The watches end as [watch] describes.
   Future<void> disconnect() async {
     if (_closed) return;
     _closed = true;
