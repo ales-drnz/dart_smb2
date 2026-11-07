@@ -48,13 +48,13 @@ const _sha256 = <String, String>{
   'libsmb2_android-x86_64.so':
       'ab83738250df00623feb1d7c5a78a1bbad3a51e9feadc598d9fd5ecff5d23a8d',
   'libsmb2_ios.xcframework.zip':
-      '9eb7206df0922b8ee191e27b25710cbe6cd0d520cf4ad82a0bc4cb9c99f429cc',
+      '5ef8a46441be65910a6768076eafac39e854b940719ac3b7af08bebd86e05150',
   'libsmb2_linux-aarch64.so':
       '5e7aa218af71f91088d4e8c9eb43019f994f2f9537508c67504a5876bc6e751d',
   'libsmb2_linux-x86_64.so':
       '36c31b25b6c8d1dcb789ced573eb8c741c17a3a8da873df8d42773e098e8eac7',
   'libsmb2_macos.xcframework.zip':
-      'd12978b5e7be17cf99286f9db4036ebe8c34a18b45a2fb61c7411a70d1727e15',
+      'ee826d5178c183ab12d2f8c5e41774bf63b71994604097352ef87f25b3033be7',
   'libsmb2_windows-arm64.dll':
       '9e3739f767d46eab3d842e276c61407f94015f1eb18e2ea43e7e6c4e53bfd2c4',
   'libsmb2_windows-x86_64.dll':
