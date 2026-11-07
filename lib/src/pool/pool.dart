@@ -1233,9 +1233,11 @@ final class Smb2Pool {
   /// symbolic link to a directory as that directory: it is listed as one,
   /// but entered only when its target lies in the same directory and was
   /// not listed already, as the file ids of the listings tell; so a link
-  /// never makes a loop. The stream lists the
-  /// next directory only when the listener asks for more, so pausing or
-  /// cancelling the subscription stops it.
+  /// never makes a loop. A tree deeper than 256 levels fails with
+  /// [Smb2ErrorType.notSupported].
+  ///
+  /// The stream lists the next directory only when the listener asks for
+  /// more, so pausing or cancelling the subscription stops it.
   Stream<Smb2DirEntry> streamDirectory(
     String path, {
     bool recursive = false,
