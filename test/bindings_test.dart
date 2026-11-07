@@ -3,15 +3,19 @@
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
 /// The build hook bundles libsmb2 for this host and every binding resolves
-/// in it. Needs no server.
+/// in it, poll() included. Needs no server.
 library;
 
 import 'dart:ffi';
+import 'dart:io' show Platform;
 import 'dart:isolate';
 
 import 'package:dart_smb2/dart_smb2.dart';
 import 'package:dart_smb2/src/ffi/libsmb2.g.dart';
+import 'package:dart_smb2/src/ffi/poll.dart';
 import 'package:test/test.dart';
+
+import '_helpers.dart';
 
 void main() {
   test('a context can be created and destroyed', () {
@@ -61,12 +65,15 @@ void main() {
   );
 
   test('a client that is never connected refuses calls with state', () {
+    final client = Smb2Client();
+    expect(() => client.listDirectory(''), throwsType(Smb2ErrorType.state));
     expect(
-      () => Smb2Client().listDirectory(''),
-      throwsA(
-        isA<Smb2Exception>().having((e) => e.type, 'type', Smb2ErrorType.state),
-      ),
+      () => client.rename('a', 'b', overwrite: true),
+      throwsType(Smb2ErrorType.state),
     );
+    expect(() => client.link('a', 'b'), throwsType(Smb2ErrorType.state));
+    expect(() => client.symlink('a', 'b'), throwsType(Smb2ErrorType.state));
+    expect(() => client.watch('a'), throwsType(Smb2ErrorType.state));
   });
 
   test('connecting to a closed port fails with a network failure', () {
@@ -86,5 +93,21 @@ void main() {
         ),
       ),
     );
+  });
+
+  group('pollSocket', () {
+    test('a negative descriptor times out without events', () {
+      // POSIX poll ignores a negative fd; WSAPoll fails on it.
+      final rc = pollSocket(-1, 1, 0);
+      expect(rc, Platform.isWindows ? -1 : 0);
+    });
+
+    test('waits for the time asked when nothing happens', () {
+      final clock = Stopwatch()..start();
+      pollSocket(-1, 1, 50);
+      if (!Platform.isWindows) {
+        expect(clock.elapsedMilliseconds, greaterThanOrEqualTo(40));
+      }
+    });
   });
 }

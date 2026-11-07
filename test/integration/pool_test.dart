@@ -14,25 +14,6 @@ import 'package:test/test.dart';
 
 import '_fixture.dart';
 
-Uint8List pattern(int length) {
-  final out = Uint8List(length);
-  for (var i = 0; i < length; i++) {
-    out[i] = (i * 31 + (i >> 16)) & 0xff;
-  }
-  return out;
-}
-
-bool sameBytes(List<int> a, List<int> b) {
-  if (a.length != b.length) return false;
-  for (var i = 0; i < a.length; i++) {
-    if (a[i] != b[i]) return false;
-  }
-  return true;
-}
-
-Matcher throwsType(Smb2ErrorType type) =>
-    throwsA(isA<Smb2Exception>().having((e) => e.type, 'type', type));
-
 void main() {
   final scratch = Scratch('pool');
   late Smb2Pool pool;
@@ -122,6 +103,33 @@ void main() {
       await p.disconnect();
       expect(p.isClosed, isTrue);
       await expectLater(p.stat(seedFile), throwsType(Smb2ErrorType.state));
+    });
+
+    test('a sealed session negotiates AES-GCM on SMB 3.1.1', () async {
+      final p = await Smb2Pool.connect(
+        host: server.host,
+        share: server.share,
+        user: server.user,
+        password: server.password,
+        workers: 1,
+        seal: true,
+      );
+      try {
+        await p.writeFile(scratch.path('sealed'), pattern(4096));
+        expect(await p.readFile(scratch.path('sealed')), pattern(4096));
+        final status = await Process.run('docker', [
+          'exec',
+          'dart-smb2-test',
+          'smbstatus',
+          '-b',
+        ]);
+        expect(
+          status.stdout as String,
+          matches(RegExp(r'SMB3_11\s+\S*\(AES-(128|256)-GCM\)')),
+        );
+      } finally {
+        await p.disconnect();
+      }
     });
   });
 
@@ -389,6 +397,434 @@ void main() {
       for (var i = 0; i < 12; i++) {
         expect(await pool.readFile(scratch.path('p$i.bin')), [i]);
       }
+    });
+
+    test('the pool replaces an existing file only when asked', () async {
+      final a = scratch.path('prn_a'), b = scratch.path('prn_b');
+      await pool.writeFile(a, pattern(5));
+      await pool.writeFile(b, pattern(7));
+      await expectLater(
+        pool.rename(a, b),
+        throwsType(Smb2ErrorType.alreadyExists),
+      );
+      await pool.rename(a, b, overwrite: true);
+      expect(await pool.readFile(b), pattern(5));
+    });
+
+    test('a directory is never replaced', () async {
+      final f = scratch.path('rn_file'), d = scratch.path('rn_dir');
+      await pool.writeFile(f, pattern(3));
+      await pool.mkdir(d);
+      await expectLater(
+        pool.rename(f, d, overwrite: true),
+        throwsA(isA<Smb2Exception>()),
+      );
+      expect((await pool.stat(d)).isDirectory, isTrue);
+    });
+
+    test('overwrite to a free name is a plain rename', () async {
+      final a = scratch.path('rn_free_a'), b = scratch.path('rn_free_b');
+      await pool.writeFile(a, pattern(4));
+      await pool.rename(a, b, overwrite: true);
+      expect(await pool.readFile(b), pattern(4));
+    });
+  });
+
+  group('links', () {
+    test('a hard link shares the data', () async {
+      final f = scratch.path('hl_src'), l = scratch.path('hl_link');
+      await pool.writeFile(f, pattern(100));
+      await pool.link(f, l);
+      await pool.writeFileRange(f, Uint8List.fromList([9, 9]));
+      expect((await pool.readFile(l)).sublist(0, 2), [9, 9]);
+      await expectLater(
+        pool.link(f, l),
+        throwsType(Smb2ErrorType.alreadyExists),
+      );
+    });
+
+    test('a symbolic link reads back its target', () async {
+      final l = scratch.path('sl_link');
+      await pool.writeFile(scratch.path('sl_target'), pattern(8));
+      await pool.symlink('sl_target', l);
+      expect(await pool.readlink(l), 'sl_target');
+      final entry = (await pool.listDirectory(
+        scratch.dir,
+      )).firstWhere((e) => e.name == 'sl_link');
+      expect(entry.stat.type, Smb2FileType.link);
+      final client = connectClient();
+      try {
+        client.symlink('sl_target', scratch.path('sl_client'));
+        expect(client.readlink(scratch.path('sl_client')), 'sl_target');
+      } finally {
+        client.disconnect();
+      }
+    });
+
+    test('a symbolic link over an existing name fails', () async {
+      final l = scratch.path('sl_taken');
+      await pool.writeFile(l, pattern(1));
+      await expectLater(
+        pool.symlink('anything', l),
+        throwsType(Smb2ErrorType.alreadyExists),
+      );
+    });
+  });
+
+  group('watch', () {
+    test('streams the pool\'s own changes', () async {
+      final dir = scratch.path('pw');
+      await pool.mkdir(dir);
+      final events = StreamIterator(pool.watch(dir));
+      // The first event proves the watch is up; keep writing until then.
+      final writer = Timer.periodic(
+        const Duration(milliseconds: 300),
+        (_) => pool.writeFile('$dir/ping', pattern(1)).ignore(),
+      );
+      try {
+        await collect(events, (got) => got.isNotEmpty);
+      } finally {
+        writer.cancel();
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await pool.writeFile('$dir/file', pattern(2));
+      await pool.deleteFile('$dir/file');
+      final got = await collect(
+        events,
+        (got) => got.contains(
+          Smb2ChangeEvent(Smb2ChangeAction.removed, '$dir/file'),
+        ),
+      );
+      expect(
+        got,
+        containsAllInOrder([
+          Smb2ChangeEvent(Smb2ChangeAction.added, '$dir/file'),
+          Smb2ChangeEvent(Smb2ChangeAction.removed, '$dir/file'),
+        ]),
+      );
+      await events.cancel();
+      // The watch's handle is closed: the directory can go.
+      await pool.rmdir(dir, recursive: true);
+    });
+
+    test('a missing directory ends the stream with notFound', () async {
+      await expectLater(
+        pool.watch(scratch.path('pw_missing')).toList(),
+        throwsType(Smb2ErrorType.notFound),
+      );
+    });
+
+    test('the token ends the stream with cancelled', () async {
+      final token = Smb2CancelToken();
+      final done = pool.watch(scratch.dir, cancelToken: token).toList();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      token.cancel();
+      await expectLater(done, throwsType(Smb2ErrorType.cancelled));
+    });
+
+    test('disconnect ends the stream', () async {
+      final p = await connectPool(workers: 1);
+      final done = p.watch(scratch.dir).toList();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await p.disconnect();
+      expect(await done, isEmpty);
+    });
+
+    test('cancelling at once leaves no session behind', () async {
+      // Its own user, so the sessions of the other tests do not count.
+      final p = await Smb2Pool.connect(
+        host: server.host,
+        share: server.share,
+        user: emptyPasswordUser,
+        password: '',
+        workers: 1,
+      );
+      final sub = p.watch(scratch.dir).listen((_) {});
+      await sub.cancel();
+      await p.disconnect();
+      expect(await sessionsOf(emptyPasswordUser), 0);
+      // Still none once a leaked isolate would have connected.
+      await Future<void>.delayed(const Duration(seconds: 3));
+      expect(await sessionsOf(emptyPasswordUser), 0);
+    });
+  });
+
+  group('trees', () {
+    test(
+      'mkdir -p creates the missing levels and accepts existing ones',
+      () async {
+        final deep = scratch.path('mk/a/b/c');
+        await pool.mkdir(deep, recursive: true);
+        expect((await pool.stat(deep)).isDirectory, isTrue);
+        await pool.mkdir(deep, recursive: true);
+        await pool.mkdir(scratch.path('mk/a'), recursive: true);
+        await pool.writeFile(scratch.path('mk/file'), pattern(1));
+        await expectLater(
+          pool.mkdir(scratch.path('mk/file/below'), recursive: true),
+          throwsType(Smb2ErrorType.notADirectory),
+        );
+      },
+    );
+
+    test('rmdir -r removes a tree with files, links and directories', () async {
+      final root = scratch.path('rm');
+      await pool.mkdir('$root/x/y', recursive: true);
+      for (var i = 0; i < 7; i++) {
+        await pool.writeFile('$root/x/f$i', pattern(i + 1));
+      }
+      await pool.writeFile('$root/x/y/z', pattern(3));
+      await pool.symlink('f0', '$root/x/link');
+      await pool.rmdir(root, recursive: true);
+      expect(await pool.exists(root), isFalse);
+      await expectLater(
+        pool.rmdir(scratch.path('rm_missing'), recursive: true),
+        throwsType(Smb2ErrorType.notFound),
+      );
+    });
+
+    test('rmdir -r refuses the share root', () async {
+      for (final root in ['', '/', r'\', '//']) {
+        expect(() => pool.rmdir(root, recursive: true), throwsArgumentError);
+      }
+      expect(await pool.exists(seedFile), isTrue);
+    });
+
+    test('rmdir -r removes a link made over SMB, not its target', () async {
+      final target = scratch.path('rml_target');
+      await pool.mkdir(target);
+      await pool.writeFile('$target/keep', pattern(1));
+      final link = scratch.path('rml_link');
+      // Samba refuses a directory link over SMB; a file link to a
+      // directory is a reparse point all the same.
+      await pool.symlink('rml_target', link);
+      await pool.rmdir(link, recursive: true);
+      expect(await pool.exists(link), isFalse);
+      expect(await pool.readFile('$target/keep'), pattern(1));
+    });
+
+    test('rmdir -r does not go through a link Samba follows', () async {
+      final out = scratch.path('rmf_out');
+      await pool.mkdir(out);
+      await pool.writeFile('$out/keep', pattern(1));
+      final tree = scratch.path('rmf_tree');
+      await pool.mkdir(tree);
+      await pool.writeFile('$tree/file', pattern(1));
+      Link(hostPath('$tree/out')).createSync('../rmf_out');
+      Link(hostPath(scratch.path('rmf_link'))).createSync('rmf_out');
+      // Samba shows both links as directories and cannot remove them;
+      // nothing is removed.
+      for (final path in [tree, scratch.path('rmf_link'), out]) {
+        await expectLater(
+          pool.rmdir(path, recursive: true),
+          throwsType(Smb2ErrorType.notSupported),
+        );
+      }
+      expect(await pool.readFile('$out/keep'), pattern(1));
+      expect(await pool.readFile('$tree/file'), pattern(1));
+      Link(hostPath('$tree/out')).deleteSync();
+      Link(hostPath(scratch.path('rmf_link'))).deleteSync();
+      await pool.rmdir(tree, recursive: true);
+      expect(await pool.exists(tree), isFalse);
+    });
+
+    test('rmdir -r stops at the first failure', () async {
+      final root = scratch.path('rm_stop');
+      await pool.mkdir('$root/sub', recursive: true);
+      for (var i = 0; i < 30; i++) {
+        await pool.writeFile('$root/f$i', pattern(1));
+      }
+      await pool.writeFile('$root/sub/locked', pattern(1));
+      // Another client holds it open, which Samba takes as in use.
+      final holder = connectClient();
+      final handle = holder.openFile('$root/sub/locked');
+      try {
+        await expectLater(
+          pool.rmdir(root, recursive: true),
+          throwsA(isA<Smb2Exception>()),
+        );
+        final left = await pool.streamDirectory(root, recursive: true).length;
+        await Future<void>.delayed(const Duration(seconds: 1));
+        // Nothing went on after the failure.
+        expect(await pool.streamDirectory(root, recursive: true).length, left);
+        expect(await pool.exists('$root/sub'), isTrue);
+      } finally {
+        holder
+          ..closeHandle(handle)
+          ..disconnect();
+      }
+      await pool.rmdir(root, recursive: true);
+    });
+
+    test('streamDirectory and copyTree do not loop through links', () async {
+      final root = scratch.path('loop');
+      await pool.mkdir('$root/a', recursive: true);
+      await pool.writeFile('$root/a/f', pattern(10));
+      Link(hostPath('$root/a/up')).createSync('..');
+      Link(hostPath('$root/a/out')).createSync('../../rml_none');
+      Directory(hostPath(scratch.path('rml_none'))).createSync();
+      File(hostPath(scratch.path('rml_none/x'))).writeAsBytesSync([1]);
+      try {
+        final names = await pool
+            .streamDirectory(root, recursive: true)
+            .map((e) => e.name)
+            .toList();
+        expect(names, unorderedEquals(['a', 'a/f', 'a/up', 'a/out']));
+        final copied = scratch.path('loop_copy');
+        expect(await pool.copyTree(root, copied), 10);
+        expect(
+          await pool
+              .streamDirectory(copied, recursive: true)
+              .map((e) => e.name)
+              .toList(),
+          unorderedEquals(['a', 'a/f']),
+        );
+      } finally {
+        Link(hostPath('$root/a/up')).deleteSync();
+        Link(hostPath('$root/a/out')).deleteSync();
+      }
+    });
+
+    test('streamDirectory lists a tree depth first, relative names', () async {
+      final root = scratch.path('ls');
+      await pool.mkdir('$root/a/b', recursive: true);
+      await pool.writeFile('$root/a/b/f', pattern(1));
+      await pool.writeFile('$root/a/g', pattern(1));
+      await pool.writeFile('$root/top', pattern(1));
+      final flat = await pool.streamDirectory(root).map((e) => e.name).toList();
+      expect(flat, unorderedEquals(['a', 'top']));
+      final tree = await pool
+          .streamDirectory(root, recursive: true)
+          .map((e) => e.name)
+          .toList();
+      expect(tree, unorderedEquals(['a', 'a/b', 'a/b/f', 'a/g', 'top']));
+      expect(tree.indexOf('a'), lessThan(tree.indexOf('a/b')));
+      expect(tree.indexOf('a/b'), lessThan(tree.indexOf('a/b/f')));
+      final first = await pool.streamDirectory(root, recursive: true).first;
+      expect(first.name, isNotEmpty);
+    });
+  });
+
+  group('copies', () {
+    test('copy streams a file and reports its progress', () async {
+      final src = scratch.path('cp_src'), dst = scratch.path('cp_dst');
+      final data = pattern(3 * 1024 * 1024 + 17, 5);
+      await pool.writeFile(src, data);
+      final progress = <(int, int)>[];
+      final n = await pool.copy(
+        src,
+        dst,
+        chunkSize: 1024 * 1024,
+        onProgress: (c, t) => progress.add((c, t)),
+      );
+      expect(n, data.length);
+      expect(await pool.readFile(dst), data);
+      expect(progress.length, 4);
+      expect(progress.last, (data.length, data.length));
+      await expectLater(
+        pool.copy(src, dst),
+        throwsType(Smb2ErrorType.alreadyExists),
+      );
+      await pool.writeFile(src, pattern(10, 9));
+      await pool.copy(src, dst, overwrite: true);
+      expect(await pool.readFile(dst), pattern(10, 9));
+      final names = await pool.streamDirectory(scratch.dir).toList();
+      expect(names.where((e) => e.name.contains('.part-')), isEmpty);
+    });
+
+    test('a cancelled copy leaves no temporary file', () async {
+      final src = scratch.path('cpc_src'), dst = scratch.path('cpc_dst');
+      await pool.writeFile(src, pattern(2 * 1024 * 1024));
+      final token = Smb2CancelToken();
+      await expectLater(
+        pool.copy(
+          src,
+          dst,
+          chunkSize: 256 * 1024,
+          cancelToken: token,
+          onProgress: (c, _) => token.cancel(),
+        ),
+        throwsType(Smb2ErrorType.cancelled),
+      );
+      expect(await pool.exists(dst), isFalse);
+      final names = await pool.streamDirectory(scratch.dir).toList();
+      expect(names.where((e) => e.name.startsWith('cpc_dst.part-')), isEmpty);
+    });
+
+    test('copyTree copies a tree with total progress', () async {
+      final src = scratch.path('ct_src'), dst = scratch.path('ct_dst');
+      await pool.mkdir('$src/d/e', recursive: true);
+      await pool.writeFile('$src/a', pattern(1000));
+      await pool.writeFile('$src/d/b', pattern(2000, 1));
+      await pool.writeFile('$src/d/e/c', pattern(3000, 2));
+      await pool.mkdir('$src/empty');
+      var last = (0, 0);
+      final n = await pool.copyTree(
+        src,
+        dst,
+        onProgress: (c, t) => last = (c, t),
+      );
+      expect(n, 6000);
+      expect(last, (6000, 6000));
+      expect(await pool.readFile('$dst/d/e/c'), pattern(3000, 2));
+      expect((await pool.stat('$dst/empty')).isDirectory, isTrue);
+      await expectLater(
+        pool.copyTree(src, dst),
+        throwsType(Smb2ErrorType.alreadyExists),
+      );
+      expect(await pool.copyTree(src, dst, overwrite: true), 6000);
+    });
+  });
+
+  group('uploads', () {
+    test('streamWrite reports the bytes the server took', () async {
+      final progress = <(int, int)>[];
+      final chunks = [pattern(1000), pattern(500), pattern(250)];
+      final n = await pool.streamWrite(
+        scratch.path('sw'),
+        Stream.fromIterable(chunks),
+        length: 1750,
+        onProgress: (s, t) => progress.add((s, t)),
+      );
+      expect(n, 1750);
+      expect(progress, [(1000, 1750), (1500, 1750), (1750, 1750)]);
+      final unknown = <int>[];
+      await pool.streamWrite(
+        scratch.path('sw2'),
+        Stream.fromIterable(chunks),
+        onProgress: (_, t) => unknown.add(t),
+      );
+      expect(unknown, everyElement(-1));
+    });
+
+    test('uploadFile writes atomically with progress', () async {
+      final file = File('${local.path}/up.bin');
+      final data = pattern(5 * 1024 * 1024 + 3, 7);
+      await file.writeAsBytes(data);
+      final dst = scratch.path('up');
+      await pool.writeFile(dst, pattern(4));
+      final progress = <(int, int)>[];
+      final n = await pool.uploadFile(
+        file.path,
+        dst,
+        chunkSize: 2 * 1024 * 1024,
+        onProgress: (s, t) => progress.add((s, t)),
+      );
+      expect(n, data.length);
+      expect(progress.map((p) => p.$1), [
+        2 * 1024 * 1024,
+        4 * 1024 * 1024,
+        data.length,
+      ]);
+      expect(progress.every((p) => p.$2 == data.length), isTrue);
+      expect(await pool.readFile(dst), data);
+      await expectLater(
+        pool.uploadFile('${local.path}/missing', dst),
+        throwsA(
+          isA<Smb2Exception>()
+              .having((e) => e.type, 'type', Smb2ErrorType.notFound)
+              .having((e) => e.path, 'path', '${local.path}/missing'),
+        ),
+      );
     });
   });
 }

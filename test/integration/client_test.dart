@@ -5,32 +5,13 @@
 @Tags(['integration'])
 library;
 
+import 'dart:io' show sleep;
 import 'dart:typed_data';
 
 import 'package:dart_smb2/dart_smb2.dart';
 import 'package:test/test.dart';
 
 import '_fixture.dart';
-
-/// [length] bytes that differ at every offset of a 64 KiB period, so a
-/// chunk read at the wrong offset never matches by chance.
-Uint8List pattern(int length) {
-  final out = Uint8List(length);
-  for (var i = 0; i < length; i++) {
-    out[i] = (i * 31 + (i >> 16)) & 0xff;
-  }
-  return out;
-}
-
-/// Whether [a] and [b] hold the same bytes; `expect(a, b)` on megabytes
-/// spends seconds in the matcher.
-bool sameBytes(List<int> a, List<int> b) {
-  if (a.length != b.length) return false;
-  for (var i = 0; i < a.length; i++) {
-    if (a[i] != b[i]) return false;
-  }
-  return true;
-}
 
 void main() {
   final scratch = Scratch('client');
@@ -138,9 +119,6 @@ void main() {
         c.disconnect();
       }
     }
-
-    Matcher throwsType(Smb2ErrorType type) =>
-        throwsA(isA<Smb2Exception>().having((e) => e.type, 'type', type));
 
     test('a user with an empty password logs on as that user', () {
       listsAndDisconnects(connectAs(emptyPasswordUser, ''));
@@ -603,6 +581,149 @@ void main() {
           ),
         ),
       );
+    });
+
+    test('the client replaces an existing file only when asked', () {
+      final a = scratch.path('rn_a'), b = scratch.path('rn_b');
+      client
+        ..writeFile(a, pattern(10))
+        ..writeFile(b, pattern(20));
+      expect(
+        () => client.rename(a, b),
+        throwsType(Smb2ErrorType.alreadyExists),
+      );
+      client.rename(a, b, overwrite: true);
+      expect(client.exists(a), isFalse);
+      expect(client.readFile(b), pattern(10));
+    });
+  });
+
+  group('watch', () {
+    test('reports creates, renames and deletes in order', () {
+      final dir = scratch.path('cw');
+      client.mkdir(dir);
+      final w = client.watch(dir);
+      try {
+        expect(w.next(timeout: const Duration(milliseconds: 200)), isEmpty);
+        final other = connectClient();
+        try {
+          other
+            ..writeFile('$dir/a', pattern(3))
+            ..rename('$dir/a', '$dir/b')
+            ..deleteFile('$dir/b');
+        } finally {
+          other.disconnect();
+        }
+        final got = <Smb2ChangeEvent>[];
+        final clock = Stopwatch()..start();
+        while (!got.any((e) => e.action == Smb2ChangeAction.removed) &&
+            clock.elapsed < const Duration(seconds: 10)) {
+          got.addAll(w.next(timeout: const Duration(seconds: 1)));
+        }
+        expect(
+          got,
+          containsAllInOrder([
+            Smb2ChangeEvent(Smb2ChangeAction.added, '$dir/a'),
+            Smb2ChangeEvent(Smb2ChangeAction.renamedFrom, '$dir/a'),
+            Smb2ChangeEvent(Smb2ChangeAction.renamedTo, '$dir/b'),
+            Smb2ChangeEvent(Smb2ChangeAction.removed, '$dir/b'),
+          ]),
+        );
+      } finally {
+        w.close();
+      }
+      expect(w.isClosed, isTrue);
+      expect(w.next, throwsType(Smb2ErrorType.state));
+      // The directory is free again.
+      client.rmdir(dir);
+    });
+
+    test('keeps changes made while other calls run', () {
+      final dir = scratch.path('cw_busy');
+      client.mkdir(dir);
+      final w = client.watch(dir);
+      try {
+        client.writeFile('$dir/x', pattern(1));
+        // The reply may arrive during these calls; it is kept.
+        client
+          ..stat('$dir/x')
+          ..listDirectory(dir);
+        final got = <Smb2ChangeEvent>[];
+        final clock = Stopwatch()..start();
+        while (got.isEmpty && clock.elapsed < const Duration(seconds: 10)) {
+          got.addAll(w.next(timeout: const Duration(seconds: 1)));
+        }
+        expect(got.first, Smb2ChangeEvent(Smb2ChangeAction.added, '$dir/x'));
+      } finally {
+        w.close();
+      }
+    });
+
+    test('recursive watches report paths below the directory', () {
+      final dir = scratch.path('cw_tree');
+      client
+        ..mkdir(dir)
+        ..mkdir('$dir/sub');
+      final w = client.watch(dir, recursive: true);
+      try {
+        client.writeFile('$dir/sub/deep', pattern(1));
+        final got = <Smb2ChangeEvent>[];
+        final clock = Stopwatch()..start();
+        while (!got.any((e) => e.path == '$dir/sub/deep') &&
+            clock.elapsed < const Duration(seconds: 10)) {
+          got.addAll(w.next(timeout: const Duration(seconds: 1)));
+        }
+        expect(got.map((e) => e.path), contains('$dir/sub/deep'));
+      } finally {
+        w.close();
+      }
+    });
+
+    test('a file or a missing path cannot be watched', () {
+      client.writeFile(scratch.path('cw_file'), pattern(1));
+      expect(
+        () => client.watch(scratch.path('cw_file')),
+        throwsType(Smb2ErrorType.notADirectory),
+      );
+      expect(
+        () => client.watch(scratch.path('cw_missing')),
+        throwsType(Smb2ErrorType.notFound),
+      );
+      expect(
+        () => client.watch(scratch.dir, filter: 0),
+        throwsType(Smb2ErrorType.invalidParam),
+      );
+    });
+
+    test('a zero timeout still reads what has arrived', () {
+      final dir = scratch.path('cw_zero');
+      client.mkdir(dir);
+      final w = client.watch(dir);
+      try {
+        expect(w.next(timeout: Duration.zero), isEmpty);
+        final other = connectClient();
+        try {
+          other.writeFile('$dir/z', pattern(1));
+        } finally {
+          other.disconnect();
+        }
+        final got = <Smb2ChangeEvent>[];
+        final clock = Stopwatch()..start();
+        while (got.isEmpty && clock.elapsed < const Duration(seconds: 10)) {
+          sleep(const Duration(milliseconds: 100));
+          got.addAll(w.next(timeout: Duration.zero));
+        }
+        expect(got.first, Smb2ChangeEvent(Smb2ChangeAction.added, '$dir/z'));
+      } finally {
+        w.close();
+      }
+    });
+
+    test('disconnect closes the watchers', () {
+      final c = connectClient();
+      final w = c.watch(scratch.dir);
+      c.disconnect();
+      expect(w.isClosed, isTrue);
     });
   });
 }

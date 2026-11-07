@@ -13,6 +13,8 @@ import 'dart:math';
 
 import 'package:dart_smb2/dart_smb2.dart';
 
+export '../_helpers.dart';
+
 /// The seed file `bootstrap.dart` keeps on the share: 1 MiB of zeros.
 const seedFile = 'dart_smb2_seed.bin';
 
@@ -79,6 +81,19 @@ Future<Smb2Pool> connectPool({
   workers: workers,
   timeout: timeout ?? const Duration(seconds: 30),
 );
+
+/// The next events of [events] until [done] holds for what arrived.
+Future<List<Smb2ChangeEvent>> collect(
+  StreamIterator<Smb2ChangeEvent> events,
+  bool Function(List<Smb2ChangeEvent> got) done,
+) async {
+  final got = <Smb2ChangeEvent>[];
+  while (!done(got)) {
+    if (!await events.moveNext().timeout(const Duration(seconds: 15))) break;
+    got.add(events.current);
+  }
+  return got;
+}
 
 /// Where [sharePath] lies on this machine: the share is a bind mount of
 /// `volumes/share`, so a test can make what SMB cannot, such as a

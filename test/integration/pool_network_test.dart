@@ -21,9 +21,6 @@ import 'package:test/test.dart';
 
 import '_fixture.dart';
 
-Matcher throwsType(Smb2ErrorType type) =>
-    throwsA(isA<Smb2Exception>().having((e) => e.type, 'type', type));
-
 /// A write request's native buffer of [n] bytes, as the pool makes one.
 int nativeBuffer(int n) => malloc<Uint8>(n).address;
 
@@ -856,5 +853,69 @@ void main() {
         expect(errors, isEmpty);
       },
     );
+  });
+
+  group('watch', () {
+    test('cancelling while the server hangs stops the watch', () async {
+      final direct = await connectPool(workers: 1);
+      final p = await connectPool(workers: 1, host: proxy.host);
+      try {
+        final events = StreamIterator(p.watch(scratch.dir));
+        final writer = Timer.periodic(
+          const Duration(milliseconds: 300),
+          (_) => direct.writeFile(scratch.path('hang'), pattern(1)).ignore(),
+        );
+        try {
+          await collect(events, (got) => got.isNotEmpty);
+        } finally {
+          writer.cancel();
+        }
+        proxy.freeze();
+        final clock = Stopwatch()..start();
+        await events.cancel();
+        // The requests in flight time out, the isolate is not killed.
+        expect(clock.elapsed, lessThan(const Duration(seconds: 25)));
+      } finally {
+        proxy.thaw();
+        await p.disconnect();
+        await direct.disconnect();
+      }
+    });
+
+    test('a dropped connection reconnects and reports an overflow', () async {
+      final direct = await connectPool(workers: 1);
+      final p = await connectPool(workers: 1, host: proxy.host);
+      final dir = scratch.path('pw_drop');
+      await direct.mkdir(dir);
+      final events = StreamIterator(p.watch(dir));
+      try {
+        final writer = Timer.periodic(
+          const Duration(milliseconds: 300),
+          (_) => direct.writeFile('$dir/ping', pattern(1)).ignore(),
+        );
+        try {
+          await collect(events, (got) => got.isNotEmpty);
+        } finally {
+          writer.cancel();
+        }
+        proxy.drop();
+        final got = await collect(
+          events,
+          (got) => got.any((e) => e.action == Smb2ChangeAction.overflow),
+        );
+        expect(got.last, Smb2ChangeEvent(Smb2ChangeAction.overflow, dir));
+        // And it watches again.
+        await direct.writeFile('$dir/after', pattern(1));
+        final later = await collect(
+          events,
+          (got) => got.any((e) => e.path == '$dir/after'),
+        );
+        expect(later.map((e) => e.path), contains('$dir/after'));
+      } finally {
+        await events.cancel();
+        await p.disconnect();
+        await direct.disconnect();
+      }
+    });
   });
 }

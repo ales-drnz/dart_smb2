@@ -17,9 +17,6 @@ import 'package:test/test.dart';
 
 import '_fixture.dart';
 
-Matcher throwsType(Smb2ErrorType type) =>
-    throwsA(isA<Smb2Exception>().having((e) => e.type, 'type', type));
-
 void main() {
   final scratch = Scratch('resilience');
   late Smb2Pool pool;
