@@ -9,10 +9,11 @@
 //   dart run tool/ffigen.dart
 //
 // The headers are libsmb2-scripts' PATCHED tree (patch_utimes.py adds
-// smb2_utimes and patch_rename_replace.py smb2_rename2 to libsmb2.h), and the functions bound are exactly those in
-// its verify/symbols.txt, the list every release binary is checked to
-// export. tool/bindings_drift.dart checks the generated file against that
-// list and against a release's manifest.json.
+// smb2_utimes and patch_rename_replace.py smb2_rename2 to libsmb2.h), and
+// the functions bound are exactly those in its verify/symbols.txt, the
+// list every release binary is checked to export. tool/bindings_drift.dart
+// checks the generated file against that list and against a release's
+// manifest.json.
 
 import 'dart:io';
 
