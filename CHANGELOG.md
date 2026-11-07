@@ -1,7 +1,5 @@
 ## [0.3.0] - 7-11-2026
 
-Watches, links, copies and trees, and libsmb2-r11 with OpenSSL. See [MIGRATION.md](MIGRATION.md) for the changes to make in an app.
-
 ### libsmb2-r11
 **All platforms**
 - libsmb2 is upstream master of 7-11-2026 (a52c157).
