@@ -338,6 +338,12 @@ external int smb2_rmdir(
   ffi.Pointer<ffi.Char> path,
 );
 
+/// The libsmb2-scripts release this library was built as, e.g. "r11"
+/// (libsmb2-<release>). Added by libsmb2-scripts; upstream libsmb2 has no
+/// such call.
+@ffi.Native<ffi.Pointer<ffi.Char> Function()>(isLeaf: true)
+external ffi.Pointer<ffi.Char> smb2_scripts_release();
+
 /// Called to process the events when events become available for the smb2
 /// file descriptor.
 @ffi.Native<ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Int)>()

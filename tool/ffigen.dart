@@ -9,7 +9,8 @@
 //   dart run tool/ffigen.dart
 //
 // The headers are libsmb2-scripts' PATCHED tree (patch_utimes.py adds
-// smb2_utimes and patch_rename_replace.py smb2_rename2 to libsmb2.h), and
+// smb2_utimes, patch_rename_replace.py smb2_rename2 and
+// patch_scripts_release.py smb2_scripts_release to libsmb2.h), and
 // the functions bound are exactly those in its verify/symbols.txt, the
 // list every release binary is checked to export. tool/bindings_drift.dart
 // checks the generated file against that list and against a release's
@@ -40,6 +41,7 @@ const _leaf = {
   'smb2_get_fd',
   'smb2_which_events',
   'free_smb2_file_notify_change_information',
+  'smb2_scripts_release',
 };
 
 /// The builtin headers (stddef.h, ...) of the clang on PATH, for a
