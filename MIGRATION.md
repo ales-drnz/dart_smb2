@@ -46,10 +46,23 @@ The hook bundles `libsmb2-r11`, whose libraries carry OpenSSL's libcrypto
 for AES-GCM encryption: they are five to thirteen times larger (1.3 to
 3.5 MB per architecture). An app that shows its licences adds OpenSSL's
 Apache-2.0 text, `LICENSE-OpenSSL.txt` of the release, beside libsmb2's
-(see NOTICE). A libsmb2 of your own that `hooks.user_defines` points at
-must be r11 or later: 0.3.0 binds `smb2_rename2`, which only the patched
-r11 has, beside `smb2_link`, `smb2_symlink` and the change notification
-calls.
+(see NOTICE).
+
+A libsmb2 of your own that `hooks.user_defines` points at must be a build
+of libsmb2-scripts at `libsmb2-r11`. Before its first connection, each
+isolate asks the library for its release (`smb2_scripts_release()`, which
+only libsmb2-scripts patches in): with a libsmb2 of any other release, or
+a build of upstream libsmb2, `connect`, `listShares` and every pool call
+that connects fail with an `Smb2Exception` of type `notSupported` that
+names the release it found:
+
+| 0.2.x | 0.3.0 |
+| --- | --- |
+| A libsmb2 of another release, or upstream libsmb2, loaded and failed later, or read stat fields wrong | Connecting fails with an `Smb2Exception` of type `notSupported` |
+
+Offline builds still work: point `hooks.user_defines` at a copy of the
+`libsmb2-r11` release, or at libsmb2-scripts' `release_builds/` built at
+`libsmb2-r11`.
 
 ## New in 0.3.0
 

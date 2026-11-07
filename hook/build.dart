@@ -20,9 +20,10 @@
 // such as libsmb2-scripts' release_builds/, and each target takes its own.
 // A single file is bundled for every target, so it only suits a build for
 // one target and architecture. Local files are bundled as they are, without
-// a checksum, and must be builds of the pinned libsmb2 release or of one
-// with the same ABI (smb2_stat_64's layout, the patched-in smb2_utimes): an
-// older libsmb2 loads, but reads stat fields wrong.
+// a checksum, and must be builds of libsmb2-scripts at the release pinned
+// below (libsmb2Release in lib/src/libsmb2_release.dart, which
+// tool/bindings_drift.dart holds to _release): with any other, or upstream
+// libsmb2, connecting fails with an Smb2Exception of type notSupported.
 
 import 'dart:io';
 

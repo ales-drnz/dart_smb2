@@ -10,6 +10,7 @@
 - A sealed session on SMB 3.1.1 uses AES-256-GCM or AES-128-GCM, as the server picks, instead of AES-128-CCM.
 - Each library carries libcrypto, and is five to thirteen times larger.
 - `smb2_rename2()`, patched in, lets a rename replace an existing file.
+- `smb2_scripts_release()`, patched in, returns the release the library was built as.
 
 **Windows**
 - A directory can be opened as a handle, which a watch needs.
@@ -18,7 +19,7 @@
 **Breaking**
 - The names deprecated in 0.2.0 are gone: `Smb2Client.open()`, `Smb2Handle.isValid`, `openFileHandle`, `openFileHandleWrite`, `readHandle`, `writeHandle`, `fsync` and `ftruncate` of `Smb2Client`, `timeoutSeconds:`, the `Smb2Pool.listShares()` instance method, `isCanceled:`, `Smb2PoolHandle.closed` and `refreshFinalizer()`, `Smb2Exception.isConnectionError` and `errorCode`, `Smb2ErrorType.isConnectionError`, `fileNotFound` and `classify()`.
 - `Smb2Pool.streamWrite()` returns the bytes written, as a `Future<int>`.
-- A libsmb2 of your own, set through `hooks.user_defines`, must be r11 or later: dart_smb2 binds `smb2_rename2`, which only the patched r11 has.
+- A libsmb2 of your own, set through `hooks.user_defines`, must be a build of libsmb2-scripts at `libsmb2-r11`: with any other, or upstream libsmb2, connecting fails with an `Smb2Exception` of type `notSupported`. See MIGRATION.md.
 
 **Added**
 - `Smb2Pool.watch()` streams the changes to a directory as `Smb2ChangeEvent`s, with `Smb2ChangeAction` and `Smb2ChangeFilter`.

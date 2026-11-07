@@ -39,7 +39,7 @@ Every failure is an `Smb2Exception`. Its `type` comes from the NT status the ser
 | `alreadyExists`, `notEmpty` | The target exists; the directory has entries |
 | `inUse` | Another client holds the file open or locked, or the server is out of resources for the moment |
 | `diskFull` | Out of space or over quota |
-| `io`, `invalidParam`, `notSupported` | A read or write failure, a bad argument, an unsupported operation |
+| `io`, `invalidParam`, `notSupported` | A read or write failure, a bad argument, an unsupported operation, or a libsmb2 of another release than the one the package pins |
 | `state` | Closed pool, closed handle, client not connected |
 | `cancelled` | Cancelled through an `Smb2CancelToken` |
 | `unknown` | Anything else |
