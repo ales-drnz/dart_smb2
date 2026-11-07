@@ -48,7 +48,8 @@ for AES-GCM encryption: they are five to thirteen times larger (1.3 to
 Apache-2.0 text, `LICENSE-OpenSSL.txt` of the release, beside libsmb2's
 (see NOTICE). A libsmb2 of your own that `hooks.user_defines` points at
 must be r11 or later: 0.3.0 binds `smb2_rename2`, which only the patched
-r11 has, and the change notification calls.
+r11 has, beside `smb2_link`, `smb2_symlink` and the change notification
+calls.
 
 ## New in 0.3.0
 

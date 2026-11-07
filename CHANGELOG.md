@@ -10,7 +10,7 @@ Removes what 0.2.0 deprecated and adds watches, links, copies and tree helpers. 
 
 ### Added
 - `Smb2Pool.watch()`, a stream of the changes to a directory (`Smb2ChangeEvent`, `Smb2ChangeAction`, `Smb2ChangeFilter`), on a connection of its own that reconnects by itself, and `Smb2Client.watch()` with `Smb2Watcher`. Ending a watch waits for its request in flight, up to about 15 seconds when the server hangs.
-- `rename(overwrite: true)`, which replaces an existing file in one request.
+- `rename(overwrite: true)` in `Smb2Pool` and `Smb2Client`, which replaces an existing file in one request.
 - `link()` for hard links and `symlink()` for symbolic links, in `Smb2Pool` and `Smb2Client`.
 - `mkdir(recursive: true)` and `rmdir(recursive: true)` in `Smb2Pool`, like `mkdir -p` and `rm -r`. `rmdir` refuses the share root, stops at the first failure, and never goes through a link to a directory that Samba follows.
 - `Smb2Pool.streamDirectory()`, a listing as a stream, of a whole tree with `recursive`, where a link never makes a loop.
