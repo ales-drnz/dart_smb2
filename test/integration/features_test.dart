@@ -681,7 +681,11 @@ void main() {
       expect(await pool.readFile(dst), data);
       await expectLater(
         pool.uploadFile('${local.path}/missing', dst),
-        throwsType(Smb2ErrorType.notFound),
+        throwsA(
+          isA<Smb2Exception>()
+              .having((e) => e.type, 'type', Smb2ErrorType.notFound)
+              .having((e) => e.path, 'path', '${local.path}/missing'),
+        ),
       );
     });
   });

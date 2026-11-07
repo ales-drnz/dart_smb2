@@ -44,7 +44,8 @@ final class Smb2Exception implements Exception {
   /// failures and for libsmb2's generic failure.
   final int? errno;
 
-  /// The share-relative path of the operation, when it has one.
+  /// The share-relative path of the operation, when it has one; the local
+  /// path when a local file cannot be read or written.
   final String? path;
 
   /// The underlying error, if any (a `FileSystemException` while writing a

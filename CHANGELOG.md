@@ -17,6 +17,9 @@ Removes what 0.2.0 deprecated and adds watches, links, copies and tree helpers. 
 - `Smb2Pool.copy()` and `copyTree()`, with progress.
 - `Smb2Pool.uploadFile()`, the counterpart of `downloadToFile()`, and `onProgress` and `length` on `streamWrite()`.
 
+### Changed
+- When `downloadToFile()` cannot write the local file, or `uploadFile()` cannot read it, `Smb2Exception.path` is that local path, not the remote one.
+
 ### libsmb2-r11
 **All platforms**
 - libsmb2 is upstream master of 7-11-2026 (a52c157).

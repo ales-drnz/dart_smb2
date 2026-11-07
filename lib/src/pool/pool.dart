@@ -922,7 +922,7 @@ final class Smb2Pool {
       throw Smb2Exception(
         'Cannot write $destination: ${e.message}',
         type: Smb2ErrorType.io,
-        path: path,
+        path: destination,
         cause: e,
         stackTrace: st,
       );
@@ -950,7 +950,7 @@ final class Smb2Pool {
         throw Smb2Exception(
           'Cannot write $destination: ${e.message}',
           type: Smb2ErrorType.io,
-          path: path,
+          path: destination,
           cause: e,
           stackTrace: st,
         );
@@ -1039,7 +1039,7 @@ final class Smb2Pool {
         type: e.osError?.errorCode == 2
             ? Smb2ErrorType.notFound
             : Smb2ErrorType.io,
-        path: path,
+        path: source,
         cause: e,
         stackTrace: st,
       );
@@ -1068,7 +1068,7 @@ final class Smb2Pool {
       throw Smb2Exception(
         'Cannot read $source: ${e.message}',
         type: Smb2ErrorType.io,
-        path: path,
+        path: source,
         cause: e,
         stackTrace: st,
       );
