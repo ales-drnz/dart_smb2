@@ -43,23 +43,23 @@ const _baseUrl =
 /// not published yet: the hook then needs hooks.user_defines.dart_smb2.libsmb2.
 const _sha256 = <String, String>{
   'libsmb2_android-arm64-v8a.so':
-      '70bbd9cd1edd1a8ba8d7ca08dc4d2ff60cd5d44cffe1a3d1e2a329b3dad1386c',
+      '87c9c87b86d8284104dac2549c6448cabb98934b1af5413f48b3f33e018844ec',
   'libsmb2_android-armeabi-v7a.so':
-      'd66a0c5956d0eb060d382ee3ebb612d8e65c5343c099477a655eac40bf5a005b',
+      '013be97c7dff8c217da5342d0260b2e8357188c6b780c92d0eceb746593ce6e9',
   'libsmb2_android-x86_64.so':
-      'ab83738250df00623feb1d7c5a78a1bbad3a51e9feadc598d9fd5ecff5d23a8d',
+      '63d92f00576b1b15232730f67d91082a25fdd4f5da2c29d7b8d41f7665d8f795',
   'libsmb2_ios.xcframework.zip':
-      '5ef8a46441be65910a6768076eafac39e854b940719ac3b7af08bebd86e05150',
+      'd25f815936687a47c13fdb01164df0312edec1b82ab3c69329374678ef144c6c',
   'libsmb2_linux-aarch64.so':
-      '5e7aa218af71f91088d4e8c9eb43019f994f2f9537508c67504a5876bc6e751d',
+      'd2407f3bc4bbe5db045231a8046059f31ff4b1bffc4cbd990d7855a3ca7d98be',
   'libsmb2_linux-x86_64.so':
-      '36c31b25b6c8d1dcb789ced573eb8c741c17a3a8da873df8d42773e098e8eac7',
+      '0ecafeb72f8b62e54e295442ae18d1c30ed25c7afc779c22b6747fcee7dedbb0',
   'libsmb2_macos.xcframework.zip':
-      'ee826d5178c183ab12d2f8c5e41774bf63b71994604097352ef87f25b3033be7',
+      'ea2439a4ccec1285673bad8d3f0f72b93f4f55f68071d6292c9b79066012d8ef',
   'libsmb2_windows-arm64.dll':
-      '9e3739f767d46eab3d842e276c61407f94015f1eb18e2ea43e7e6c4e53bfd2c4',
+      '57c9d9a238053fb30d505fbb37ab0e4d52142d282880a3fe114c409b94ab1a0a',
   'libsmb2_windows-x86_64.dll':
-      '4d9f5595d477349fb1573d794501e41b24c73b0ad159e0d9ca721ab6a3576138',
+      '8a626d762f4b132d134618a1fcc0ca1951dd50382c30068c9d50256f0505088f',
 };
 
 void main(List<String> args) async {
