@@ -21,7 +21,7 @@ It has the pool's methods, without the `Future`s and the cancel tokens: `openFil
 
 ## Watching a directory
 
-`Smb2Client.watch` returns an `Smb2Watcher`, which you ask for the changes with `next`. Without a timeout `next` blocks until something changes; with one it returns an empty list when nothing did. Changes are kept from the moment the watch starts, so none is lost between two calls, and the client's other calls go on meanwhile.
+`Smb2Client.watch` returns an `Smb2Watcher`, which you ask for the changes with `next`. Without a timeout `next` blocks until something changes; with one it returns an empty list when nothing did, and `Duration.zero` takes what has arrived without waiting. Changes are kept from the moment the watch starts, so none is lost between two calls, and the client's other calls go on meanwhile.
 
 ```dart
 final watcher = client.watch('Inbox');

@@ -239,6 +239,30 @@ void main() {
       );
     });
 
+    test('a zero timeout still reads what has arrived', () {
+      final dir = scratch.path('cw_zero');
+      client.mkdir(dir);
+      final w = client.watch(dir);
+      try {
+        expect(w.next(timeout: Duration.zero), isEmpty);
+        final other = connectClient();
+        try {
+          other.writeFile('$dir/z', pattern(1));
+        } finally {
+          other.disconnect();
+        }
+        final got = <Smb2ChangeEvent>[];
+        final clock = Stopwatch()..start();
+        while (got.isEmpty && clock.elapsed < const Duration(seconds: 10)) {
+          sleep(const Duration(milliseconds: 100));
+          got.addAll(w.next(timeout: Duration.zero));
+        }
+        expect(got.first, Smb2ChangeEvent(Smb2ChangeAction.added, '$dir/z'));
+      } finally {
+        w.close();
+      }
+    });
+
     test('disconnect closes the watchers', () {
       final c = connectClient();
       final w = c.watch(scratch.dir);

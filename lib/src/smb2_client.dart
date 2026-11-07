@@ -941,7 +941,8 @@ final class Smb2Watcher {
   ///
   /// With a [timeout] it waits at most that long and returns an empty list
   /// when nothing changed; without one it waits until something does. The
-  /// wait does not count against the client's request timeout.
+  /// wait does not count against the client's request timeout. Even
+  /// [Duration.zero] reads what the socket holds already.
   ///
   /// Throws the failure that ended the watch (the directory was removed,
   /// the connection was lost: [Smb2Exception.isNetworkFailure]) once the
@@ -949,6 +950,7 @@ final class Smb2Watcher {
   /// [Smb2ErrorType.state] once closed.
   List<Smb2ChangeEvent> next({Duration? timeout}) {
     final clock = Stopwatch()..start();
+    var last = false;
     while (true) {
       if (_events.isNotEmpty) {
         final out = List<Smb2ChangeEvent>.of(_events);
@@ -967,12 +969,18 @@ final class Smb2Watcher {
           path: path,
         );
       }
+      if (last) return const [];
       _client._ensureConnected();
       var wait = -1;
       if (timeout != null) {
         final left = timeout - clock.elapsed;
-        if (left <= Duration.zero) return const [];
-        wait = left.inMilliseconds + (left.inMicroseconds % 1000 > 0 ? 1 : 0);
+        // One more pass once the time is up, which does not wait.
+        if (left <= Duration.zero) {
+          wait = 0;
+          last = true;
+        } else {
+          wait = left.inMilliseconds + (left.inMicroseconds % 1000 > 0 ? 1 : 0);
+        }
       }
       final ctx = _client._ctx;
       final revents = pollSocket(
