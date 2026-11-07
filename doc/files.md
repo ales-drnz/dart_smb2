@@ -19,7 +19,7 @@ await for (final e in pool.streamDirectory('Album', recursive: true)) {
 }
 ```
 
-`streamDirectory` lists one directory per request, and the next one only when the listener asks for more, so pausing or cancelling the subscription stops it. With `recursive`, each directory is followed by its contents, and each entry's `name` is its path relative to the directory asked for. Links are listed, not followed, and a link never makes a loop: see Trees below for the links Samba follows.
+`streamDirectory` lists one directory per request, and the next one only when the listener asks for more, so pausing or cancelling the subscription stops it. With `recursive`, each directory is followed by its contents, and each entry's `name` is its path relative to the directory asked for. Links are listed, not followed, and a link never makes a loop: see Trees below for the links Samba follows. A tree deeper than 256 levels fails with `notSupported`.
 
 ## Stat, size and existence
 
@@ -31,7 +31,7 @@ final size = await pool.fileSize('Album/01 - Intro.flac');
 final there = await pool.exists('Album/booklet.pdf');
 ```
 
-`Smb2Stat` holds the type, the size, the modified, created, accessed and changed times (UTC, to the microsecond) and the file attributes. `exists` returns `false` only for a missing path. Any other failure throws.
+`Smb2Stat` holds the type, the size, the modified, created, accessed and changed times (UTC, to the microsecond), the file attributes and `fileId`, the server's id of the file, the same for every name of it. `exists` returns `false` only for a missing path. Any other failure throws.
 
 ## Space on the share
 

@@ -80,6 +80,6 @@ Paths are relative to the share: `''` is its root, `Album/cover.jpg` a file in i
 await pool.disconnect();
 ```
 
-Each worker finishes the requests it has already been sent, closes its open files and logs off, and its isolate ends. A worker that does not finish within 5 seconds is killed. A reconnect in progress is aborted, and later calls fail with a `state` error.
+Each worker finishes the requests it has already been sent, closes its open files and logs off, and its isolate ends. A worker that does not finish within 5 seconds is killed. A reconnect in progress is aborted, and later calls fail with a `state` error. The watches end first: one whose server stops answering takes up to about 15 seconds (see [Files and directories](https://pub.dev/documentation/dart_smb2/latest/topics/Files%20and%20directories-topic.html)).
 
 When a connection drops while the pool is open, the pool reconnects on its own. See [Errors and cancellation](https://pub.dev/documentation/dart_smb2/latest/topics/Errors%20and%20cancellation-topic.html).
