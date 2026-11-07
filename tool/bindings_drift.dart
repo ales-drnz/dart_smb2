@@ -14,7 +14,9 @@
 ///
 /// - the functions `lib/src/ffi/libsmb2.g.dart` binds are exactly the
 ///   ones every binary of the release is verified to export;
-/// - `hook/build.dart` pins that release and its SHA-256s.
+/// - `hook/build.dart` pins that release and its SHA-256s;
+/// - `libsmb2Release` in `lib/src/libsmb2_release.dart`, the release the
+///   package holds the loaded libsmb2 to, is that release too.
 ///
 /// With a libsmb2-scripts checkout (default: the sibling one, when
 /// present), also that its `verify/symbols.txt` lists the same functions.
@@ -51,6 +53,11 @@ List<String> bindingsDrift(Directory root, {Directory? scripts}) {
   final release = 'libsmb2-${manifest['release']}';
   if (!hook.contains("const _release = '$release';")) {
     problems.add('hook/build.dart does not pin $release');
+  }
+  if (!read(
+    'lib/src/libsmb2_release.dart',
+  ).contains("const String libsmb2Release = '${manifest['release']}';")) {
+    problems.add('lib/src/libsmb2_release.dart does not require $release');
   }
   final assets = (manifest['assets']! as Map<String, Object?>)
       .cast<String, String>();
