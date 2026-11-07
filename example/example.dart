@@ -18,6 +18,27 @@ Future<void> main() async {
 
     // Download a file to disk, atomically.
     await pool.downloadToFile('Album/01 - Intro.flac', '/tmp/intro.flac');
+
+    // Watch a directory while files go in.
+    final changes = pool
+        .watch('Backup', recursive: true)
+        .listen((e) => print('${e.action.name} ${e.path}'));
+
+    // Create the missing directories, upload a file and copy it.
+    await pool.mkdir('Backup/2026/11', recursive: true);
+    await pool.uploadFile(
+      '/tmp/intro.flac',
+      'Backup/2026/11/intro.flac',
+      onProgress: (sent, total) => print('$sent / $total'),
+    );
+    await pool.copy(
+      'Backup/2026/11/intro.flac',
+      'Backup/latest.flac',
+      overwrite: true,
+    );
+
+    await Future<void>.delayed(const Duration(seconds: 1));
+    await changes.cancel();
   } on Smb2Exception catch (e) {
     print('${e.type.name}: ${e.message}');
   } finally {
