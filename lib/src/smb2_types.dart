@@ -155,6 +155,10 @@ final class Smb2Stat {
   /// The FILE_ATTRIBUTE_* flags of the entry (MS-FSCC 2.6).
   final int attributes;
 
+  /// The server's id of the file (its IndexNumber, MS-FSCC 2.4.20), the
+  /// same for every name of it; 0 when the server gives none.
+  final int fileId;
+
   /// Builds a [Smb2Stat].
   const Smb2Stat({
     required this.type,
@@ -164,6 +168,7 @@ final class Smb2Stat {
     required this.accessed,
     required this.changed,
     this.attributes = 0,
+    this.fileId = 0,
   });
 
   /// True if this is a directory.
@@ -185,11 +190,20 @@ final class Smb2Stat {
       other.created == created &&
       other.accessed == accessed &&
       other.changed == changed &&
-      other.attributes == attributes;
+      other.attributes == attributes &&
+      other.fileId == fileId;
 
   @override
-  int get hashCode =>
-      Object.hash(type, size, modified, created, accessed, changed, attributes);
+  int get hashCode => Object.hash(
+    type,
+    size,
+    modified,
+    created,
+    accessed,
+    changed,
+    attributes,
+    fileId,
+  );
 
   @override
   String toString() =>

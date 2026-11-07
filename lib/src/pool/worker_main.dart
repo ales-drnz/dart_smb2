@@ -121,6 +121,8 @@ final class _Server {
     switch (r.op) {
       case Op.listDirectory:
         return client.listDirectory(a[0]! as String);
+      case Op.listDirectoryIds:
+        return listDirectoryIds(client, a[0]! as String);
       case Op.stat:
         return client.stat(a[0]! as String);
       case Op.statvfs:

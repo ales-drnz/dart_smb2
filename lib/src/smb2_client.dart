@@ -240,7 +240,11 @@ final class Smb2Client implements Finalizable {
 
   /// Lists the entries of the directory at [path], without `.` and `..`.
   /// Each entry carries its metadata, so no request per entry is needed.
-  List<Smb2DirEntry> listDirectory(String path) {
+  List<Smb2DirEntry> listDirectory(String path) => _list(path).$3;
+
+  /// The listing of [path], with the file ids of its `.` and `..` entries
+  /// (0 when the server lists none).
+  (int, int, List<Smb2DirEntry>) _list(String path) {
     _ensureConnected();
     final dir = using((arena) {
       final d = smb2_opendir(_ctx, _path(path, arena));
@@ -249,6 +253,7 @@ final class Smb2Client implements Finalizable {
     });
     try {
       final results = <Smb2DirEntry>[];
+      var self = 0, up = 0;
       for (
         var ent = smb2_readdir(_ctx, dir);
         ent != nullptr;
@@ -256,10 +261,15 @@ final class Smb2Client implements Finalizable {
       ) {
         // The entry is recycled by the next readdir: copy it now.
         final name = _string(ent.ref.name);
-        if (name == '.' || name == '..') continue;
-        results.add(Smb2DirEntry(name: name, stat: _stat(ent.ref.st)));
+        if (name == '.') {
+          self = ent.ref.st.smb2_ino;
+        } else if (name == '..') {
+          up = ent.ref.st.smb2_ino;
+        } else {
+          results.add(Smb2DirEntry(name: name, stat: _stat(ent.ref.st)));
+        }
       }
-      return results;
+      return (self, up, results);
     } finally {
       smb2_closedir(_ctx, dir);
     }
@@ -897,6 +907,16 @@ final class Smb2Client implements Finalizable {
   }
 }
 
+/// The listing of [path] by [client], with the file ids of its `.` and
+/// `..` entries, 0 when the server lists none. Samba gives `..` the id of
+/// the real parent, so a directory whose `..` is not the directory it was
+/// listed in is a link the server follows.
+@internal
+(int, int, List<Smb2DirEntry>) listDirectoryIds(
+  Smb2Client client,
+  String path,
+) => client._list(path);
+
 typedef _NotifyCallback =
     Void Function(Pointer<smb2_context>, Int, Pointer<Void>, Pointer<Void>);
 
@@ -1226,6 +1246,7 @@ Smb2Stat _stat(smb2_stat_64 st) => Smb2Stat(
   accessed: _time(st.smb2_atime, st.smb2_atime_nsec),
   changed: _time(st.smb2_ctime, st.smb2_ctime_nsec),
   attributes: st.smb2_attributes,
+  fileId: st.smb2_ino,
 );
 
 // ─── Open flags ───────────────────────────────────────────────────────────────

@@ -18,6 +18,9 @@ enum Op {
   /// Lists a directory: `[path]`.
   listDirectory,
 
+  /// Lists a directory with the ids of `.` and `..`: `[path]`.
+  listDirectoryIds,
+
   /// Stats a path: `[path]`.
   stat,
 

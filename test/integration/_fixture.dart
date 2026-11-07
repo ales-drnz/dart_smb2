@@ -80,6 +80,12 @@ Future<Smb2Pool> connectPool({
   timeout: timeout ?? const Duration(seconds: 30),
 );
 
+/// Where [sharePath] lies on this machine: the share is a bind mount of
+/// `volumes/share`, so a test can make what SMB cannot, such as a
+/// symbolic link that Samba follows.
+String hostPath(String sharePath) =>
+    'test/integration/volumes/share/$sharePath';
+
 /// The sessions [user] has open on the container, from `smbstatus`.
 Future<int> sessionsOf(String user) async {
   final status = await Process.run('docker', [

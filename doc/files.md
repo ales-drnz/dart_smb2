@@ -19,7 +19,7 @@ await for (final e in pool.streamDirectory('Album', recursive: true)) {
 }
 ```
 
-`streamDirectory` lists one directory per request, and the next one only when the listener asks for more, so pausing or cancelling the subscription stops it. With `recursive`, each directory is followed by its contents, and each entry's `name` is its path relative to the directory asked for. Links are listed, not followed.
+`streamDirectory` lists one directory per request, and the next one only when the listener asks for more, so pausing or cancelling the subscription stops it. With `recursive`, each directory is followed by its contents, and each entry's `name` is its path relative to the directory asked for. Links are listed, not followed, and a link never makes a loop: see Trees below for the links Samba follows.
 
 ## Stat, size and existence
 
@@ -73,7 +73,9 @@ await pool.mkdir('Backup/2026/11', recursive: true);
 await pool.rmdir('Backup/2025', recursive: true);
 ```
 
-`mkdir(recursive: true)` creates the missing directories above the path too, and takes an existing directory as done, like `mkdir -p`. `rmdir(recursive: true)` removes everything below the directory first, like `rm -r`: files, links (never what they point at) and directories, as many at once as the pool has workers. It stops at the first entry it cannot remove. Both are repeated after a dropped connection, since an entry already made, or already gone, is not a failure.
+`mkdir(recursive: true)` creates the missing directories above the path too, and takes an existing directory as done, like `mkdir -p`. `rmdir(recursive: true)` lists the whole tree, then removes everything below the directory, like `rm -r`: files, links (never what they point at) and directories, as many at once as the pool has workers. At the first entry it cannot remove it starts no more removals, waits for those in flight and throws, leaving the rest. It refuses the share root (`''` or `/`) with an `ArgumentError`. Both are repeated after a dropped connection, since an entry already made, or already gone, is not a failure.
+
+Samba follows symbolic links by default (`follow symlinks = yes`): a link to a directory, made on the server, looks like that directory, and SMB cannot remove it. The file ids of the listings (`Smb2Stat.fileId`) tell such a link apart, unless it lies in the same directory as its target. `streamDirectory` and `copyTree` list it, but enter it only when its target lies in the same directory and was not listed already. `rmdir(recursive: true)` fails with `notSupported` before removing anything when the tree holds such a link, or the path is one or has one beside it: remove those links on the server.
 
 ### Links
 
@@ -93,7 +95,7 @@ await pool.copy('Album/01.flac', 'Backup/01.flac',
 await pool.copyTree('Album', 'Backup/Album', overwrite: true);
 ```
 
-SMB2 has no copy that every server offers, so the data passes through your machine: `copy` streams the file as `streamFile` reads it and writes it to a temporary file next to the destination, which takes the destination's place once complete. Without `overwrite`, an existing destination fails with `alreadyExists` before any data is read. A failure or a cancellation removes the temporary file. `copyTree` lists the whole tree first, so its progress counts the bytes of every file, then creates the directories and copies the files one at a time. Symbolic links are skipped.
+SMB2 has no copy that every server offers, so the data passes through your machine: `copy` streams the file as `streamFile` reads it and writes it to a temporary file next to the destination, which takes the destination's place once complete. Without `overwrite`, an existing destination fails with `alreadyExists` before any data is read. A failure or a cancellation removes the temporary file. `copyTree` lists the whole tree first, so its progress counts the bytes of every file, then creates the directories and copies the files one at a time. Symbolic links are skipped, and so are the links Samba follows that `streamDirectory` does not enter.
 
 ## Watching a directory
 

@@ -444,6 +444,108 @@ void main() {
       );
     });
 
+    test('rmdir -r refuses the share root', () async {
+      for (final root in ['', '/', r'\', '//']) {
+        expect(() => pool.rmdir(root, recursive: true), throwsArgumentError);
+      }
+      expect(await pool.exists(seedFile), isTrue);
+    });
+
+    test('rmdir -r removes a link made over SMB, not its target', () async {
+      final target = scratch.path('rml_target');
+      await pool.mkdir(target);
+      await pool.writeFile('$target/keep', pattern(1));
+      final link = scratch.path('rml_link');
+      // Samba refuses a directory link over SMB; a file link to a
+      // directory is a reparse point all the same.
+      await pool.symlink('rml_target', link);
+      await pool.rmdir(link, recursive: true);
+      expect(await pool.exists(link), isFalse);
+      expect(await pool.readFile('$target/keep'), pattern(1));
+    });
+
+    test('rmdir -r does not go through a link Samba follows', () async {
+      final out = scratch.path('rmf_out');
+      await pool.mkdir(out);
+      await pool.writeFile('$out/keep', pattern(1));
+      final tree = scratch.path('rmf_tree');
+      await pool.mkdir(tree);
+      await pool.writeFile('$tree/file', pattern(1));
+      Link(hostPath('$tree/out')).createSync('../rmf_out');
+      Link(hostPath(scratch.path('rmf_link'))).createSync('rmf_out');
+      // Samba shows both links as directories and cannot remove them;
+      // nothing is removed.
+      for (final path in [tree, scratch.path('rmf_link'), out]) {
+        await expectLater(
+          pool.rmdir(path, recursive: true),
+          throwsType(Smb2ErrorType.notSupported),
+        );
+      }
+      expect(await pool.readFile('$out/keep'), pattern(1));
+      expect(await pool.readFile('$tree/file'), pattern(1));
+      Link(hostPath('$tree/out')).deleteSync();
+      Link(hostPath(scratch.path('rmf_link'))).deleteSync();
+      await pool.rmdir(tree, recursive: true);
+      expect(await pool.exists(tree), isFalse);
+    });
+
+    test('rmdir -r stops at the first failure', () async {
+      final root = scratch.path('rm_stop');
+      await pool.mkdir('$root/sub', recursive: true);
+      for (var i = 0; i < 30; i++) {
+        await pool.writeFile('$root/f$i', pattern(1));
+      }
+      await pool.writeFile('$root/sub/locked', pattern(1));
+      // Another client holds it open, which Samba takes as in use.
+      final holder = connectClient();
+      final handle = holder.openFile('$root/sub/locked');
+      try {
+        await expectLater(
+          pool.rmdir(root, recursive: true),
+          throwsA(isA<Smb2Exception>()),
+        );
+        final left = await pool.streamDirectory(root, recursive: true).length;
+        await Future<void>.delayed(const Duration(seconds: 1));
+        // Nothing went on after the failure.
+        expect(await pool.streamDirectory(root, recursive: true).length, left);
+        expect(await pool.exists('$root/sub'), isTrue);
+      } finally {
+        holder
+          ..closeHandle(handle)
+          ..disconnect();
+      }
+      await pool.rmdir(root, recursive: true);
+    });
+
+    test('streamDirectory and copyTree do not loop through links', () async {
+      final root = scratch.path('loop');
+      await pool.mkdir('$root/a', recursive: true);
+      await pool.writeFile('$root/a/f', pattern(10));
+      Link(hostPath('$root/a/up')).createSync('..');
+      Link(hostPath('$root/a/out')).createSync('../../rml_none');
+      Directory(hostPath(scratch.path('rml_none'))).createSync();
+      File(hostPath(scratch.path('rml_none/x'))).writeAsBytesSync([1]);
+      try {
+        final names = await pool
+            .streamDirectory(root, recursive: true)
+            .map((e) => e.name)
+            .toList();
+        expect(names, unorderedEquals(['a', 'a/f', 'a/up', 'a/out']));
+        final copied = scratch.path('loop_copy');
+        expect(await pool.copyTree(root, copied), 10);
+        expect(
+          await pool
+              .streamDirectory(copied, recursive: true)
+              .map((e) => e.name)
+              .toList(),
+          unorderedEquals(['a', 'a/f']),
+        );
+      } finally {
+        Link(hostPath('$root/a/up')).deleteSync();
+        Link(hostPath('$root/a/out')).deleteSync();
+      }
+    });
+
     test('streamDirectory lists a tree depth first, relative names', () async {
       final root = scratch.path('ls');
       await pool.mkdir('$root/a/b', recursive: true);
