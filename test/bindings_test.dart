@@ -13,11 +13,19 @@ import 'dart:isolate';
 import 'package:dart_smb2/dart_smb2.dart';
 import 'package:dart_smb2/src/ffi/libsmb2.g.dart';
 import 'package:dart_smb2/src/ffi/poll.dart';
+import 'package:dart_smb2/src/libsmb2_release.dart';
+import 'package:ffi/ffi.dart';
 import 'package:test/test.dart';
 
 import '_helpers.dart';
 
 void main() {
+  test('the bundled libsmb2 reports the pinned release', () {
+    final release = smb2_scripts_release().cast<Utf8>().toDartString();
+    expect(release, libsmb2Release);
+    expect(libsmb2Mismatch(release), isNull);
+  });
+
   test('a context can be created and destroyed', () {
     final ctx = smb2_init_context();
     expect(ctx, isNot(nullptr));

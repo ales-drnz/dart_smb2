@@ -58,7 +58,9 @@ enum Smb2ErrorType {
   /// length, a timestamp out of range.
   invalidParam,
 
-  /// The server does not support the operation.
+  /// The server does not support the operation, or the app loaded a
+  /// libsmb2 of another release than the one this package pins, which
+  /// fails every connection.
   notSupported,
 
   /// The client, pool or handle is not in a state that allows the call:

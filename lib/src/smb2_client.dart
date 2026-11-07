@@ -18,6 +18,7 @@ import 'package:meta/meta.dart';
 
 import 'ffi/libsmb2.g.dart';
 import 'ffi/poll.dart';
+import 'libsmb2_release.dart';
 import 'pool/pool.dart';
 import 'smb2_error_type.dart';
 import 'smb2_exception.dart';
@@ -1057,12 +1058,36 @@ int _seconds(Duration timeout) =>
 
 // ─── Context setup ────────────────────────────────────────────────────────────
 
+/// Why the libsmb2 this isolate loaded cannot serve the package, or `null`
+/// when it is a build of [libsmb2Release]. Read once per isolate, before
+/// its first context: the bindings hold the API of the pinned release only.
+final Smb2Exception? _libsmb2Refusal = _checkLibsmb2();
+
+Smb2Exception? _checkLibsmb2() {
+  String? release;
+  ArgumentError? cause;
+  try {
+    final p = smb2_scripts_release();
+    if (p != nullptr) release = p.cast<Utf8>().toDartString();
+    // @Native throws an ArgumentError when the symbol does not resolve: a
+    // libsmb2 that is not a build of libsmb2-scripts, or one older than r11.
+    // ignore: avoid_catching_errors
+  } on ArgumentError catch (e) {
+    cause = e;
+  }
+  final why = libsmb2Mismatch(release);
+  return why == null
+      ? null
+      : Smb2Exception(why, type: Smb2ErrorType.notSupported, cause: cause);
+}
+
 Pointer<smb2_context> _newContext({
   String? user,
   String? password,
   String? domain,
   required Duration timeout,
 }) {
+  if (_libsmb2Refusal case final refusal?) throw refusal;
   final ctx = smb2_init_context();
   if (ctx == nullptr) {
     throw const Smb2Exception('Cannot create an SMB2 context');
