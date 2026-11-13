@@ -1,9 +1,13 @@
 name: CI
 
+# A commit that only touches Markdown, the images or the licence files
+# starts no run.
 on:
   push:
     branches: [main, 'release/**']
+    paths-ignore: ['**/*.md', 'imgs/**', LICENSE, NOTICE]
   pull_request:
+    paths-ignore: ['**/*.md', 'imgs/**', LICENSE, NOTICE]
   workflow_dispatch:
     inputs:
       libsmb2_scripts_run:
