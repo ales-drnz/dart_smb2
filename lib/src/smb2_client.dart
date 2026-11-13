@@ -418,6 +418,14 @@ final class Smb2Client implements Finalizable {
 
   /// Reads [path] in chunks of up to [chunkSize] bytes, keeping one handle
   /// open for the whole read and only one chunk in memory at a time.
+  ///
+  /// The handle is closed when the iteration reaches the end or throws. An
+  /// iteration left earlier (a `break`, `take`, `first`) keeps it open
+  /// until [disconnect]: read to the end, or use [openFileWithSize] and
+  /// [readFromHandle] to close it yourself.
+  ///
+  /// A file that shrinks while it is read fails with [Smb2ErrorType.io],
+  /// as [Smb2Pool.streamFile] does.
   Iterable<Uint8List> readFileChunked(
     String path, {
     int chunkSize = 1024 * 1024,
@@ -429,7 +437,13 @@ final class Smb2Client implements Finalizable {
       while (offset < size) {
         final want = size - offset < chunkSize ? size - offset : chunkSize;
         final chunk = readFromHandle(handle, offset: offset, length: want);
-        if (chunk.isEmpty) break; // The file shrank while it was read.
+        if (chunk.isEmpty) {
+          throw Smb2Exception(
+            'The file shrank while it was read: $offset of $size bytes',
+            type: Smb2ErrorType.io,
+            path: path,
+          );
+        }
         offset += chunk.length;
         yield chunk;
       }
