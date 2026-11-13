@@ -253,12 +253,16 @@ Future<void> _extractAppleSlice(
     // never leaves a half directory that a later build would trust.
     await dir.parent.create(recursive: true);
     final staging = await dir.parent.createTemp('unzip-');
-    await _run('unzip', ['-q', zip.path, '-d', staging.path]);
     try {
-      await staging.rename(dir.path);
-    } on FileSystemException {
-      // Another build unpacked the same zip first; its copy is identical.
-      await staging.delete(recursive: true);
+      await _run('unzip', ['-q', zip.path, '-d', staging.path]);
+      try {
+        await staging.rename(dir.path);
+      } on FileSystemException {
+        // Another build unpacked the same zip first; its copy is identical.
+      }
+    } finally {
+      // Still there when the rename lost that race, or when unzip failed.
+      if (staging.existsSync()) await staging.delete(recursive: true);
     }
   }
   // A macOS framework keeps its binary under Versions/; follow the link.
@@ -288,10 +292,10 @@ Future<bool> _matches(File file, String sha256Hex) async {
 }
 
 /// Downloads [url] to [target], in up to three attempts, 2 and 4 seconds
-/// apart. Each attempt gets 60 seconds to connect and get an answer (a
-/// proxy tunnel included) and 60 seconds without data in the transfer, so a
-/// network that answers nothing fails the build instead of hanging it. A
-/// client error other than 408 and 429 is not retried.
+/// apart. Each attempt gets 30 seconds to connect, 60 seconds to get an
+/// answer (a proxy tunnel included) and 60 seconds without data in the
+/// transfer, so a network that answers nothing fails the build instead of
+/// hanging it. A client error other than 408 and 429 is not retried.
 Future<void> _download(String url, File target, String asset) async {
   const step = Duration(seconds: 60);
   Object? lastError;
@@ -314,7 +318,13 @@ Future<void> _download(String url, File target, String asset) async {
         if (!retry) break;
         continue;
       }
-      await response.timeout(step).pipe(target.openWrite());
+      // Not pipe(), which leaves the file open when the transfer fails.
+      final sink = target.openWrite();
+      try {
+        await sink.addStream(response.timeout(step));
+      } finally {
+        await sink.close();
+      }
       return;
     } on Exception catch (e) {
       lastError = e;
