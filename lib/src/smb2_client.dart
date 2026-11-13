@@ -807,6 +807,7 @@ final class Smb2Client implements Finalizable {
         final n = smb2_pread(_ctx, fh, buf + done, want, offset + done);
         if (n < 0) throw _error(_ctx, 'Read failed', rc: n, path: handle.path);
         if (n == 0) break; // End of file.
+        if (n > want) throw _overrun('Read', n, want, handle.path);
         done += n;
       }
       if (done == 0) {
@@ -846,6 +847,7 @@ final class Smb2Client implements Finalizable {
           path: handle.path,
         );
       }
+      if (n > want) throw _overrun('Write', n, want, handle.path);
       done += n;
     }
   }
@@ -1227,6 +1229,15 @@ bool _names(String message, String name) =>
 
 Smb2Exception _invalid(String message, String? path) =>
     Smb2Exception(message, type: Smb2ErrorType.invalidParam, path: path);
+
+/// A reply that counts more bytes than the request asked for: the count
+/// comes from the server, and past [want] it would reach beyond the buffer.
+Smb2Exception _overrun(String what, int n, int want, String path) =>
+    Smb2Exception(
+      '$what returned $n bytes, $want were asked for',
+      type: Smb2ErrorType.io,
+      path: path,
+    );
 
 void _checkRange(int offset, int length, String path) {
   if (offset < 0) throw _invalid('offset must not be negative', path);
