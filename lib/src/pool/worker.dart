@@ -160,8 +160,11 @@ final class Worker {
     }
 
     // The connect itself is bounded by params.timeout inside libsmb2; this
-    // is a margin for an isolate that never answers at all.
-    final limit = params.timeout + debugSpawnMargin;
+    // is a margin for an isolate that never answers at all. Without a
+    // timeout the connect may take as long as it needs, and so may this.
+    final limit = params.timeout > Duration.zero
+        ? params.timeout + debugSpawnMargin
+        : null;
     // The abort is a token so the listener goes away with the spawn.
     final unregister =
         abort?.register(() {
@@ -173,7 +176,9 @@ final class Worker {
     }
     Object? reply;
     try {
-      reply = await first.future.timeout(limit);
+      reply = await (limit == null
+          ? first.future
+          : first.future.timeout(limit));
     } on TimeoutException {
       reply = _timedOut;
     } finally {
