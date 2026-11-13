@@ -10,6 +10,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_smb2/dart_smb2.dart';
+// ignore: implementation_imports, the count of live workers is package-internal
+import 'package:dart_smb2/src/pool/worker.dart' show Worker;
 import 'package:test/test.dart';
 
 import '_fixture.dart';
@@ -103,6 +105,26 @@ void main() {
       await p.disconnect();
       expect(p.isClosed, isTrue);
       await expectLater(p.stat(seedFile), throwsType(Smb2ErrorType.state));
+    });
+
+    test('a second disconnect waits for the first', () async {
+      final p = await connectPool(workers: 3);
+      final alive = Worker.debugAlive;
+      final first = p.disconnect();
+      final second = p.disconnect();
+      expect(second, same(first));
+      await second;
+      // Not back before the workers are closed.
+      expect(Worker.debugAlive, alive - 3);
+    });
+
+    test('a pool without a timeout connects and answers', () async {
+      final p = await connectPool(workers: 1, timeout: Duration.zero);
+      try {
+        expect((await p.stat(seedFile)).size, seedSize);
+      } finally {
+        await p.disconnect();
+      }
     });
 
     test('a sealed session negotiates AES-GCM on SMB 3.1.1', () async {

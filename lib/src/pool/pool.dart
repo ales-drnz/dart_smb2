@@ -71,6 +71,9 @@ final class Smb2Pool {
   int _next = 0;
   bool _closed = false;
 
+  /// The [disconnect] in progress or done, for the calls after the first.
+  Future<void>? _disconnecting;
+
   Smb2Pool._(this._slots, this._params);
 
   /// Connects [workers] worker isolates to [share] on [host], in parallel.
@@ -607,10 +610,7 @@ final class Smb2Pool {
 
   /// Opens [path] for reading on one worker. Read it with
   /// [readFromHandle], then [closeHandle] — or use [withFile].
-  Future<Smb2PoolHandle> openFile(
-    String path, {
-    Smb2CancelToken? cancelToken,
-  }) async {
+  Future<Smb2PoolHandle> openFile(String path, {Smb2CancelToken? cancelToken}) {
     return _dispatch<int, Smb2PoolHandle>(
       Op.open,
       [path],
@@ -625,7 +625,7 @@ final class Smb2Pool {
   Future<(Smb2PoolHandle, int)> openFileWithSize(
     String path, {
     Smb2CancelToken? cancelToken,
-  }) async {
+  }) {
     return _dispatch<(int, int), (Smb2PoolHandle, int)>(
       Op.openWithSize,
       [path],
@@ -645,7 +645,7 @@ final class Smb2Pool {
     String path, {
     bool truncate = false,
     Smb2CancelToken? cancelToken,
-  }) async {
+  }) {
     return _dispatch<int, Smb2PoolHandle>(
       Op.openWrite,
       [path, truncate],
@@ -1036,7 +1036,8 @@ final class Smb2Pool {
     } on FileSystemException catch (e, st) {
       throw Smb2Exception(
         'Cannot read $source: ${e.message}',
-        type: e.osError?.errorCode == 2
+        // A missing folder on the way is error 3 on Windows, not 2.
+        type: e is PathNotFoundException
             ? Smb2ErrorType.notFound
             : Smb2ErrorType.io,
         path: source,
@@ -1086,8 +1087,7 @@ final class Smb2Pool {
     Smb2CancelToken? cancelToken, {
     bool overwrite = true,
   }) async {
-    final part =
-        '$path.part-${Random().nextInt(1 << 32).toRadixString(16).padLeft(8, '0')}';
+    final part = '$path.part-${_partSuffix()}';
     try {
       final result = await write(part);
       cancelToken?.throwIfCancelled(path: path);
@@ -1480,8 +1480,12 @@ final class Smb2Pool {
   /// [Smb2ErrorType.connection] error). Calls waiting for a reconnect, and
   /// calls made later, fail with a [Smb2ErrorType.state] error. A reconnect
   /// in progress is aborted. The watches end as [watch] describes.
-  Future<void> disconnect() async {
-    if (_closed) return;
+  ///
+  /// Every call returns the same future: a second one, made while the
+  /// first is still closing, completes with it.
+  Future<void> disconnect() => _disconnecting ??= _disconnect();
+
+  Future<void> _disconnect() async {
     _closed = true;
     _closing.cancel();
     for (final slot in _slots) {
@@ -1881,12 +1885,19 @@ int _native(Uint8List data) {
   return buf.address;
 }
 
+/// The random end of a temporary file's name: 16 hex digits, so two
+/// transfers to the same path do not meet (the remote one is opened without
+/// a check that it is new).
+String _partSuffix() {
+  final random = Random();
+  String half() => random.nextInt(1 << 32).toRadixString(16).padLeft(8, '0');
+  return '${half()}${half()}';
+}
+
 /// A new, empty file next to [destination] for a download to fill.
 Future<File> _createPart(String destination) async {
-  final random = Random();
   for (var attempt = 0; ; attempt++) {
-    final suffix = random.nextInt(1 << 32).toRadixString(16);
-    final part = File('$destination.part-$suffix');
+    final part = File('$destination.part-${_partSuffix()}');
     try {
       return await part.create(exclusive: true);
     } on FileSystemException {
