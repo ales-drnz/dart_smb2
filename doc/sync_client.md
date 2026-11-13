@@ -36,7 +36,7 @@ try {
 }
 ```
 
-The wait does not count against the client's `timeout`. A client that has watched frees its connection only with `disconnect()`, not when it is garbage collected. `Smb2Pool.watch` runs a watcher like this one in an isolate of its own and hands you its changes as a stream.
+The wait does not count against the client's `timeout`. A client that has watched frees its connection only with `disconnect()`: not when it is garbage collected, and not when its isolate ends, so call it before the isolate exits. `Smb2Pool.watch` runs a watcher like this one in an isolate of its own and hands you its changes as a stream.
 
 ## Requests in flight
 
