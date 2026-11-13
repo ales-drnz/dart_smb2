@@ -645,12 +645,28 @@ final class Smb2Pool {
     String path, {
     bool truncate = false,
     Smb2CancelToken? cancelToken,
+  }) => _openWrite(path, truncate: truncate, cancelToken: cancelToken);
+
+  /// Opens [path] for writing. A [temporary] file is one the pool writes
+  /// and then renames into place: it is opened so that it can be renamed or
+  /// removed while a handle is open, which a handle the server keeps for a
+  /// connection that died would otherwise refuse.
+  Future<Smb2PoolHandle> _openWrite(
+    String path, {
+    required bool truncate,
+    bool temporary = false,
+    Smb2CancelToken? cancelToken,
   }) {
     return _dispatch<int, Smb2PoolHandle>(
       Op.openWrite,
-      [path, truncate],
-      (slot, id) =>
-          Smb2PoolHandleInternal.create(slot, id, path, writable: true),
+      [path, truncate, temporary],
+      (slot, id) => Smb2PoolHandleInternal.create(
+        slot,
+        id,
+        path,
+        writable: true,
+        temporary: temporary,
+      ),
       path: path,
       cancelToken: cancelToken,
     );
@@ -976,10 +992,26 @@ final class Smb2Pool {
     int? length,
     void Function(int sent, int total)? onProgress,
     Smb2CancelToken? cancelToken,
+  }) => _streamWrite(
+    path,
+    chunks,
+    length: length,
+    onProgress: onProgress,
+    cancelToken: cancelToken,
+  );
+
+  Future<int> _streamWrite(
+    String path,
+    Stream<Uint8List> chunks, {
+    int? length,
+    void Function(int sent, int total)? onProgress,
+    Smb2CancelToken? cancelToken,
+    bool temporary = false,
   }) async {
-    final handle = await openFileWrite(
+    final handle = await _openWrite(
       path,
       truncate: true,
+      temporary: temporary,
       cancelToken: cancelToken,
     );
     var offset = 0;
@@ -1056,12 +1088,13 @@ final class Smb2Pool {
     try {
       return await _viaPart(
         path,
-        (part) => streamWrite(
+        (part) => _streamWrite(
           part,
           read(),
           length: size,
           onProgress: onProgress,
           cancelToken: cancelToken,
+          temporary: true,
         ),
         cancelToken,
       );
@@ -1143,12 +1176,13 @@ final class Smb2Pool {
     }
     return _viaPart(
       destination,
-      (part) => streamWrite(
+      (part) => _streamWrite(
         part,
         streamFile(source, chunkSize: chunkSize, cancelToken: cancelToken),
         length: from.size,
         onProgress: onProgress,
         cancelToken: cancelToken,
+        temporary: true,
       ),
       cancelToken,
       overwrite: overwrite,
@@ -1688,7 +1722,9 @@ final class Smb2Pool {
         (worker) => worker.call<int>(
           handle.writable ? Op.openWrite : Op.open,
           // Never truncate again: the data written so far must stay.
-          handle.writable ? [handle.path, false] : [handle.path],
+          handle.writable
+              ? [handle.path, false, handle.temporary]
+              : [handle.path],
           path: handle.path,
         ),
       ),

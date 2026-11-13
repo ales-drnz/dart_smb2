@@ -213,8 +213,12 @@ final class _Server {
         final (h, size) = client.openFileWithSize(a[0]! as String);
         return (_keep(h), size);
       case Op.openWrite:
+        final path = a[0]! as String;
+        final truncate = a[1]! as bool;
         return _keep(
-          client.openFileWrite(a[0]! as String, truncate: a[1]! as bool),
+          a[2]! as bool
+              ? openTemporaryWrite(client, path, truncate: truncate)
+              : client.openFileWrite(path, truncate: truncate),
         );
       case Op.readHandle:
         final h = _handle(a[0], 'Read');

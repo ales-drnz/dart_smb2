@@ -75,7 +75,8 @@ enum Op {
   /// Opens for reading: `[path]`, replies `(id, size)`.
   openWithSize,
 
-  /// Opens for writing: `[path, truncate]`, replies the id.
+  /// Opens for writing: `[path, truncate, temporary]`, replies the id.
+  /// A temporary file shares delete (see `openTemporaryWrite`).
   openWrite,
 
   /// Reads a handle: `[id, offset, length]`.

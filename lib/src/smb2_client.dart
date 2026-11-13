@@ -884,9 +884,14 @@ final class Smb2Client implements Finalizable {
     }
   }
 
-  Smb2Handle _open(String path, int flags) {
+  Smb2Handle _open(String path, int flags, {bool shareDelete = false}) {
     _ensureConnected();
-    final fh = using((arena) => smb2_open(_ctx, _path(path, arena), flags));
+    final fh = using((arena) {
+      final name = _path(path, arena);
+      return shareDelete && libsmb2SharesDelete
+          ? smb2_open2(_ctx, name, flags, SMB2_OPEN_SHARE_DELETE)
+          : smb2_open(_ctx, name, flags);
+    });
     if (fh == nullptr) throw _error(_ctx, 'Open failed', path: path);
     final handle = Smb2Handle._(this, fh, path);
     _handles.add(handle);
@@ -928,6 +933,56 @@ final class Smb2Client implements Finalizable {
 
   void _check(int rc, String what, {String? path}) {
     if (rc < 0) throw _error(_ctx, what, rc: rc, path: path);
+  }
+}
+
+/// Opens [path] on [client] for writing, as [Smb2Client.openFileWrite]
+/// does, but lets others delete or rename the file while it is open
+/// (FILE_SHARE_DELETE).
+///
+/// For the temporary files the pool writes and renames into place. When
+/// the connection dies under one, the server keeps the dead session's
+/// handle until it notices, which with a server that hangs may be never;
+/// opened this way, that handle does not refuse the rename, or the delete
+/// that cleans up, over the new connection. A file of the user's is never
+/// opened so: nobody should rename it away under a handle.
+///
+/// On a libsmb2 without `smb2_open2` ([libsmb2SharesDelete]) this is a
+/// plain [Smb2Client.openFileWrite].
+@internal
+Smb2Handle openTemporaryWrite(
+  Smb2Client client,
+  String path, {
+  bool truncate = false,
+}) => client._open(
+  path,
+  _flags.wronly | _flags.creat | (truncate ? _flags.trunc : 0),
+  shareDelete: true,
+);
+
+/// Whether the libsmb2 this isolate loaded has `smb2_open2`, patched in
+/// from libsmb2-r12 on: an older one opens the pool's temporary files as
+/// any other file.
+@internal
+final bool libsmb2SharesDelete = _hasOpen2();
+
+bool _hasOpen2() {
+  try {
+    Native.addressOf<
+      NativeFunction<
+        Pointer<smb2fh> Function(
+          Pointer<smb2_context>,
+          Pointer<Char>,
+          Int,
+          Uint32,
+        )
+      >
+    >(smb2_open2);
+    return true;
+    // @Native throws an ArgumentError when the symbol does not resolve.
+    // ignore: avoid_catching_errors
+  } on ArgumentError {
+    return false;
   }
 }
 

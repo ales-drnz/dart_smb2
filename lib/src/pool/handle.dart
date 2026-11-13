@@ -62,14 +62,24 @@ final class Smb2PoolHandle {
   /// [Smb2Pool.openFileWrite]).
   final bool writable;
 
+  /// Whether the file is a temporary one of the pool's, opened so that it
+  /// can be renamed or removed while a handle is open.
+  final bool _temporary;
+
   final Slot _slot;
   int _generation;
   int _id;
   bool _closed = false;
   Future<void>? _reopening;
 
-  Smb2PoolHandle._(this._slot, this._id, this.path, {required this.writable})
-    : _generation = _slot.generation {
+  Smb2PoolHandle._(
+    this._slot,
+    this._id,
+    this.path, {
+    required this.writable,
+    bool temporary = false,
+  }) : _temporary = temporary,
+       _generation = _slot.generation {
     _finalizer.attach(this, _Leak(_slot.worker, _id), detach: this);
   }
 
@@ -98,7 +108,17 @@ extension Smb2PoolHandleInternal on Smb2PoolHandle {
     int id,
     String path, {
     required bool writable,
-  }) => Smb2PoolHandle._(slot, id, path, writable: writable);
+    bool temporary = false,
+  }) => Smb2PoolHandle._(
+    slot,
+    id,
+    path,
+    writable: writable,
+    temporary: temporary,
+  );
+
+  /// Whether the file is a temporary one of the pool's.
+  bool get temporary => _temporary;
 
   /// The slot whose worker holds the file.
   Slot get slot => _slot;
