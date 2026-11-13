@@ -1,0 +1,13 @@
+# The actions of .github/workflows and .github/actions are pinned by commit:
+# Dependabot proposes the new commit and updates the version comment.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/libsmb2-from-run
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
