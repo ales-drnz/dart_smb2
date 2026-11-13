@@ -353,6 +353,14 @@ jobs:
             command: >-
               flutter build ios --simulator --debug &&
               test -f build/ios/iphonesimulator/Runner.app/Frameworks/libdart_smb2.framework/libdart_smb2
+          # The device slice of the xcframework, which no simulator loads.
+          - name: iOS device
+            os: macos-26
+            platform: ios
+            command: >-
+              flutter build ios --debug --no-codesign &&
+              test -f build/ios/iphoneos/Runner.app/Frameworks/libdart_smb2.framework/libdart_smb2 &&
+              test "$(lipo -archs build/ios/iphoneos/Runner.app/Frameworks/libdart_smb2.framework/libdart_smb2)" = arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
