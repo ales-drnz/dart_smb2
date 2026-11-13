@@ -40,6 +40,8 @@ dependencies:
 
 Each library carries OpenSSL's libcrypto, linked in for SMB3 encryption with AES-GCM: that is most of its size.
 
+The Linux libraries are built and tested on glibc 2.31, the oldest supported. They reference no glibc symbol newer than 2.25, so an older system may load them, untested.
+
 The package needs Dart 3.10, and Flutter 3.47 in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
 
 ---
@@ -205,6 +207,32 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 <key>com.apple.security.network.client</key>
 <true/>
 ```
+
+---
+
+## Your own libsmb2 and offline builds
+
+The build hook downloads the library of each target from the [`libsmb2-r11` release](https://github.com/ales-drnz/dart_smb2/releases/tag/libsmb2-r11), checks its SHA-256 and keeps it under `.dart_tool`: the first build of a target needs the network, and so does the first after `flutter clean`. The download honours `HTTPS_PROXY` and `NO_PROXY`.
+
+To build without the network, or with a libsmb2 you built, point the hook at local files in the app's `pubspec.yaml` (the root one of a pub workspace); a relative path starts from that file's directory:
+
+```yaml
+hooks:
+  user_defines:
+    dart_smb2:
+      libsmb2: path/to/libsmb2
+```
+
+- **A directory** holds files named like the release's: `libsmb2_android-arm64-v8a.so`, `libsmb2_android-armeabi-v7a.so`, `libsmb2_android-x86_64.so`, `libsmb2_linux-aarch64.so`, `libsmb2_linux-x86_64.so`, `libsmb2_windows-arm64.dll`, `libsmb2_windows-x86_64.dll`, `libsmb2_ios.xcframework.zip` and `libsmb2_macos.xcframework.zip`. Each target takes its own, and only the ones you build for need to be there. A copy of the release's files works, and so does the `release_builds/` of [libsmb2-scripts](https://github.com/ales-drnz/libsmb2-scripts).
+- **A single file** is the finished library, bundled as it is for every target: it suits an app built for one platform and architecture.
+
+Local files are bundled without a checksum, and the hook does not hold an Android app to `minSdk` 24 with them. They must be builds of libsmb2-scripts at `libsmb2-r11`: with another release, or upstream libsmb2, connecting fails with an `Smb2Exception` of type `notSupported`.
+
+---
+
+## Versioning and deprecations
+
+While the package is 0.x, a breaking change comes only with a minor release (0.3 to 0.4), listed under "Breaking" in the [CHANGELOG](CHANGELOG.md) with its replacement in [MIGRATION](MIGRATION.md); a patch release (0.3.0 to 0.3.1) breaks nothing, so `^0.3.0` is safe. A name that is going away is deprecated first, and stays for at least one minor release before it is removed.
 
 ---
 
