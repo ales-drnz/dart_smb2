@@ -243,6 +243,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          # Gradle's distribution and dependencies, so a build does not
+          # hang on a download of them. The key is test_app's Gradle files.
+          cache: gradle
+          cache-dependency-path: |
+            test_app/android/*.gradle*
+            test_app/android/gradle/wrapper/gradle-wrapper.properties
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
@@ -369,6 +375,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          # Gradle's distribution and dependencies, so a build does not
+          # hang on a download of them. The key is test_app's Gradle files.
+          cache: gradle
+          cache-dependency-path: |
+            test_app/android/*.gradle*
+            test_app/android/gradle/wrapper/gradle-wrapper.properties
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
