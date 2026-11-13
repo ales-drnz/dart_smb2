@@ -11,37 +11,51 @@ import 'package:dart_smb2/src/libsmb2_release.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('the pin is r11, as the hook pins it', () {
-    expect(libsmb2Release, 'r11');
+  // Whatever release tool/update_libsmb2.sh pinned: nothing here names it.
+  const pin = libsmb2Release;
+  final number = int.parse(pin.substring(1));
+  final other = 'r${number + 1}';
+  final older = 'r${number - 1}';
+
+  test('the pin is a release name, as the hook pins it', () {
+    expect(pin, matches(RegExp(r'^r[1-9][0-9]*$')));
     expect(
       File('hook/build.dart').readAsStringSync(),
       contains("const _release = 'libsmb2-$libsmb2Release';"),
     );
   });
 
+  test('the README names the pinned release, and no other', () {
+    final named = RegExp(r'libsmb2-(r[0-9]+)')
+        .allMatches(File('README.md').readAsStringSync())
+        .map((m) => m.group(1))
+        .toSet();
+    expect(named, {pin});
+  });
+
   test('a libsmb2 of the pinned release passes', () {
-    expect(libsmb2Mismatch('r11'), isNull);
+    expect(libsmb2Mismatch(pin), isNull);
   });
 
   test('a libsmb2 of another release fails, naming both', () {
     expect(
-      libsmb2Mismatch('r12'),
-      'libsmb2 reports "r12", and this dart_smb2 runs on libsmb2-r11 only: '
-      'bundle the libsmb2 of the libsmb2-r11 release, or a build of '
-      'libsmb2-scripts at libsmb2-r11',
+      libsmb2Mismatch(other),
+      'libsmb2 reports "$other", and this dart_smb2 runs on libsmb2-$pin '
+      'only: bundle the libsmb2 of the libsmb2-$pin release, or a build of '
+      'libsmb2-scripts at libsmb2-$pin',
     );
-    expect(libsmb2Mismatch('r10'), startsWith('libsmb2 reports "r10"'));
+    expect(libsmb2Mismatch(older), startsWith('libsmb2 reports "$older"'));
     expect(libsmb2Mismatch(''), startsWith('libsmb2 reports ""'));
-    expect(libsmb2Mismatch('R11'), isNotNull);
-    expect(libsmb2Mismatch(' r11'), isNotNull);
+    expect(libsmb2Mismatch(pin.toUpperCase()), isNotNull);
+    expect(libsmb2Mismatch(' $pin'), isNotNull);
   });
 
   test('a libsmb2 without smb2_scripts_release fails', () {
     expect(
       libsmb2Mismatch(null),
-      'libsmb2 reports "no release", and this dart_smb2 runs on libsmb2-r11 '
-      'only: bundle the libsmb2 of the libsmb2-r11 release, or a build of '
-      'libsmb2-scripts at libsmb2-r11',
+      'libsmb2 reports "no release", and this dart_smb2 runs on '
+      'libsmb2-$pin only: bundle the libsmb2 of the libsmb2-$pin release, '
+      'or a build of libsmb2-scripts at libsmb2-$pin',
     );
   });
 }

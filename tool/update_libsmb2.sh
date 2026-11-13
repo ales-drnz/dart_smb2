@@ -11,8 +11,11 @@
 # `_release` and the `_sha256` table in hook/build.dart, the only place the
 # package pins its binaries, and `libsmb2Release` in
 # lib/src/libsmb2_release.dart, the release the package requires of the
-# libsmb2 it loads; and copies the manifest to tool/, where
-# tool/bindings_drift.dart checks the bindings against its symbol list.
+# libsmb2 it loads; the release README.md names (its badge, the link to
+# the release and the requirement on a libsmb2 of the app's own); and
+# copies the manifest to tool/, where tool/bindings_drift.dart checks the
+# bindings against its symbol list. test/libsmb2_release_test.dart checks
+# the three agree. MIGRATION.md and CHANGELOG.md are written by hand.
 #
 # Usage (from the package root):
 #   tool/update_libsmb2.sh r9                       # published release
@@ -34,10 +37,10 @@ else
     "https://github.com/ales-drnz/dart_smb2/releases/download/$TAG/manifest.json"
 fi
 
-python3 - "$MANIFEST" "$ROOT/hook/build.dart" "$TAG" "$ROOT/lib/src/libsmb2_release.dart" <<'PY'
+python3 - "$MANIFEST" "$ROOT/hook/build.dart" "$TAG" "$ROOT/lib/src/libsmb2_release.dart" "$ROOT/README.md" <<'PY'
 import json, re, sys
 
-manifest_path, hook_path, tag, release_path = sys.argv[1:]
+manifest_path, hook_path, tag, release_path, readme_path = sys.argv[1:]
 manifest = json.load(open(manifest_path))
 if f"libsmb2-{manifest['release']}" != tag:
     sys.exit(f"manifest is for libsmb2-{manifest['release']}, not {tag}")
@@ -63,9 +66,15 @@ lib, n = re.subn(r"const String libsmb2Release = '[^']*';",
 if n != 1:
     sys.exit("lib/src/libsmb2_release.dart: libsmb2Release not found")
 
+readme = open(readme_path).read()
+readme, n = re.subn(r"libsmb2-r[0-9]+", tag, readme)
+if n == 0:
+    sys.exit("README.md: no libsmb2-rN to rewrite")
+
 open(hook_path, "w").write(hook)
 open(release_path, "w").write(lib)
-print(f"hook/build.dart, lib/src/libsmb2_release.dart -> {tag} ({len(pinned)} assets)")
+open(readme_path, "w").write(readme)
+print(f"hook/build.dart, lib/src/libsmb2_release.dart, README.md -> {tag} ({len(pinned)} assets)")
 PY
 
 cp "$MANIFEST" "$ROOT/tool/libsmb2_manifest.json"
