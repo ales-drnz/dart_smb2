@@ -25,6 +25,12 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+/// Functions bound ahead of the pinned release: patched into
+/// libsmb2-scripts already, and in no released binary yet. The package
+/// checks at run time whether the libsmb2 it loaded has them
+/// (`libsmb2SharesDelete`). Empty again once the pin is libsmb2-r12.
+const _ahead = {'smb2_open2'};
+
 /// The problems found, empty when nothing drifted. [root] is the package
 /// root; [scripts] a libsmb2-scripts checkout, or null.
 List<String> bindingsDrift(Directory root, {Directory? scripts}) {
@@ -42,8 +48,11 @@ List<String> bindingsDrift(Directory root, {Directory? scripts}) {
     ).allMatches(bindings))
       m.group(1) ?? m.group(2)!,
   };
-  for (final s in bound.difference(released)) {
+  for (final s in bound.difference(released).difference(_ahead)) {
     problems.add('$s is bound but not verified in the release');
+  }
+  for (final s in _ahead.intersection(released)) {
+    problems.add('$s is in the release: drop it from _ahead');
   }
   for (final s in released.difference(bound)) {
     problems.add('$s is verified in the release but not bound');
@@ -72,7 +81,8 @@ List<String> bindingsDrift(Directory root, {Directory? scripts}) {
         .readAsLinesSync()
         .map((l) => l.trim())
         .where((l) => l.isNotEmpty && !l.startsWith('#'))
-        .toSet();
+        .toSet()
+        .difference(_ahead);
     if (listed.length != released.length || !listed.containsAll(released)) {
       problems.add(
         '${scripts.path}/verify/symbols.txt differs from the release: '

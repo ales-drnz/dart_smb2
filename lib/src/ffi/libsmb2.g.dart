@@ -221,6 +221,22 @@ external ffi.Pointer<smb2fh> smb2_open(
   int flags,
 );
 
+/// Sync open2()
+@ffi.Native<
+  ffi.Pointer<smb2fh> Function(
+    ffi.Pointer<smb2_context>,
+    ffi.Pointer<ffi.Char>,
+    ffi.Int,
+    ffi.Uint32,
+  )
+>()
+external ffi.Pointer<smb2fh> smb2_open2(
+  ffi.Pointer<smb2_context> smb2,
+  ffi.Pointer<ffi.Char> path,
+  int flags,
+  int open2_flags,
+);
+
 /// Sync opendir()
 @ffi.Native<
   ffi.Pointer<smb2dir> Function(
@@ -556,6 +572,8 @@ const int SMB2_NOTIFY_CHANGE_FILE_ACTION_REMOVED_STREAM = 7;
 const int SMB2_NOTIFY_CHANGE_FILE_ACTION_RENAMED_NEW_NAME = 5;
 
 const int SMB2_NOTIFY_CHANGE_FILE_ACTION_RENAMED_OLD_NAME = 4;
+
+const int SMB2_OPEN_SHARE_DELETE = 1;
 
 const int SMB2_RENAME_REPLACE_IF_EXISTS = 1;
 

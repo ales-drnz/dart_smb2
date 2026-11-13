@@ -9,8 +9,9 @@
 //   dart run tool/ffigen.dart
 //
 // The headers are libsmb2-scripts' PATCHED tree (patch_utimes.py adds
-// smb2_utimes, patch_rename_replace.py smb2_rename2 and
-// patch_scripts_release.py smb2_scripts_release to libsmb2.h), and
+// smb2_utimes, patch_rename_replace.py smb2_rename2,
+// patch_open_share_delete.py smb2_open2 and patch_scripts_release.py
+// smb2_scripts_release to libsmb2.h), and
 // the functions bound are exactly those in its verify/symbols.txt, the
 // list every release binary is checked to export. tool/bindings_drift.dart
 // checks the generated file against that list and against a release's
@@ -168,7 +169,8 @@ Future<void> main() async {
               node.originalName.startsWith('SMB2_CHANGE_NOTIFY_') ||
               node.originalName.startsWith('SMB2_NOTIFY_CHANGE_FILE_ACTION_') ||
               node.originalName.startsWith('SMB2_SYMLINK_') ||
-              node.originalName == 'SMB2_RENAME_REPLACE_IF_EXISTS') {
+              node.originalName == 'SMB2_RENAME_REPLACE_IF_EXISTS' ||
+              node.originalName == 'SMB2_OPEN_SHARE_DELETE') {
             node.isIncluded = true;
           }
         },
