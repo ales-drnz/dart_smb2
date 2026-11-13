@@ -1285,11 +1285,28 @@ final _leadingSlashes = RegExp('^/+');
 String _string(Pointer<Char> p) =>
     p == nullptr ? '' : p.cast<Utf8>().toDartString();
 
-DateTime _time(int seconds, int nanoseconds) =>
-    DateTime.fromMicrosecondsSinceEpoch(
-      seconds * 1000000 + nanoseconds ~/ 1000,
-      isUtc: true,
-    );
+DateTime _time(int seconds, int nanoseconds) => statTime(seconds, nanoseconds);
+
+/// The time of a stat field, from libsmb2's seconds since the Unix epoch
+/// and nanoseconds.
+///
+/// libsmb2 subtracts the epoch from the server's FILETIME as an unsigned
+/// number, so a time the server does not keep (a FILETIME of 0) or one
+/// before 1970 wraps to a count of seconds far past the year 9999. Those
+/// are given as the Unix epoch.
+@internal
+DateTime statTime(int seconds, int nanoseconds) {
+  if (seconds < 0 || seconds > _lastSecond) {
+    return DateTime.fromMicrosecondsSinceEpoch(0, isUtc: true);
+  }
+  return DateTime.fromMicrosecondsSinceEpoch(
+    seconds * 1000000 + nanoseconds ~/ 1000,
+    isUtc: true,
+  );
+}
+
+/// 9999-12-31T23:59:59Z, the last second a stat time is taken at its word.
+const int _lastSecond = 253402300799;
 
 Smb2Stat _stat(smb2_stat_64 st) => Smb2Stat(
   type: switch (st.smb2_type) {
