@@ -93,6 +93,93 @@ void main() {
     });
   });
 
+  group('a server that hangs', () {
+    test('times out an open and a listing, without a crash', () async {
+      // libsmb2 once freed the reply of an open twice when it timed out
+      // (issue #3).
+      final pool = await connectPool(
+        workers: 1,
+        host: proxy.host,
+        timeout: const Duration(seconds: 1),
+      );
+      try {
+        for (final call in <Future<Object?> Function()>[
+          () => pool.openFile(seedFile),
+          () => pool.listDirectory(''),
+          () => pool.readFile(seedFile),
+        ]) {
+          proxy
+            ..mode = ProxyMode.blackhole
+            ..freeze();
+          await expectLater(
+            call(),
+            throwsA(
+              isA<Smb2Exception>().having(
+                (e) => e.isNetworkFailure,
+                'isNetworkFailure',
+                isTrue,
+              ),
+            ),
+          );
+          proxy.mode = ProxyMode.forward;
+          expect((await pool.stat(seedFile)).size, seedSize);
+        }
+      } finally {
+        proxy.mode = ProxyMode.forward;
+        await pool.disconnect();
+      }
+    });
+
+    test(
+      'mid-upload leaves a whole file and no temporary one',
+      // Fails on libsmb2-r11: the connection that hung keeps the temporary
+      // file open on the server without FILE_SHARE_DELETE, so the rename
+      // over the new connection is refused with SHARING_VIOLATION
+      // (ales-drnz/libsmb2-scripts#1).
+      skip: 'needs opens that share delete, not in libsmb2-r11',
+      () async {
+        final pool = await connectPool(
+          workers: 1,
+          host: proxy.host,
+          timeout: const Duration(seconds: 2),
+        );
+        final tmp = Directory.systemTemp.createTempSync('dart_smb2_up');
+        try {
+          const size = 4 << 20;
+          final local = File('${tmp.path}/up.bin')
+            ..writeAsBytesSync(pattern(size, 7));
+          final remote = scratch.path('hung_upload.bin');
+          var frozen = false;
+          final sent = await pool.uploadFile(
+            local.path,
+            remote,
+            chunkSize: 1 << 20,
+            onProgress: (sent, _) {
+              // The connection that holds the write handle stays open on
+              // the server, which never hears from it again.
+              if (!frozen && sent >= 1 << 20) {
+                frozen = true;
+                proxy.freeze();
+              }
+            },
+          );
+          expect(sent, size);
+          expect(
+            sameBytes(await pool.readFile(remote), pattern(size, 7)),
+            isTrue,
+          );
+          expect(
+            (await pool.listDirectory(scratch.dir)).map((e) => e.name),
+            isNot(contains(contains('.part-'))),
+          );
+        } finally {
+          tmp.deleteSync(recursive: true);
+          await pool.disconnect();
+        }
+      },
+    );
+  });
+
   group('cancellation', () {
     test('ends a call waiting for a reconnect at once', () async {
       final pool = await connectPool(
