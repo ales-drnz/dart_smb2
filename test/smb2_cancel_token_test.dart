@@ -26,6 +26,17 @@ void main() {
     expect(t.listenerCount, 0);
   });
 
+  test('a listener that throws does not keep the others from hearing', () {
+    final t = Smb2CancelToken();
+    var calls = 0;
+    t
+      ..register(() => throw StateError('first'))
+      ..register(() => calls++);
+    expect(t.cancel, throwsStateError);
+    expect(calls, 1);
+    expect(t.isCancelled, isTrue);
+  });
+
   test('throwIfCancelled throws a cancelled Smb2Exception with the path', () {
     final t = Smb2CancelToken()..cancel();
     expect(

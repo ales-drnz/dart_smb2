@@ -58,9 +58,18 @@ final class Smb2CancelToken {
     _cancelled.complete();
     final listeners = _listeners.toList();
     _listeners.clear();
+    // Every call hears of it, also when the callback of another throws.
+    Object? error;
+    StackTrace? trace;
     for (final l in listeners) {
-      l.callback();
+      try {
+        l.callback();
+      } catch (e, st) {
+        error ??= e;
+        trace ??= st;
+      }
     }
+    if (error != null) Error.throwWithStackTrace(error, trace!);
   }
 
   /// Throws the cancellation if [cancel] has been called.
