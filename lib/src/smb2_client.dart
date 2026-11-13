@@ -666,8 +666,9 @@ final class Smb2Client implements Finalizable {
   /// The other calls of the client go on while it watches, and collect the
   /// notifications that arrive meanwhile. The directory stays open: it
   /// cannot be renamed or removed until the watcher is closed. Once a client
-  /// has watched, only [disconnect] frees its connection, not the garbage
-  /// collector.
+  /// has watched, only [disconnect] frees its connection: neither the
+  /// garbage collector nor the end of its isolate does, so call it before
+  /// the isolate exits.
   ///
   /// Fails with [Smb2ErrorType.notADirectory] for a file, and with
   /// [Smb2ErrorType.notFound] for a path that does not exist.
@@ -694,6 +695,12 @@ final class Smb2Client implements Finalizable {
     );
     _notify ??= NativeCallable<_NotifyCallback>.isolateLocal(_onNotify)
       ..keepIsolateAlive = false;
+    // From here on the context holds a request whose callback is Dart code.
+    // The finalizer would run smb2_destroy_context(), which calls it, when
+    // the isolate exits: a callback the VM can no longer run, and aborts
+    // on. Without it a client dropped without disconnect() keeps its
+    // connection until the process ends.
+    _finalizer.detach(this);
     _watchers[watcher._id] = watcher;
     try {
       _arm(watcher);

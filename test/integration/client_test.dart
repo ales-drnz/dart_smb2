@@ -6,6 +6,7 @@
 library;
 
 import 'dart:io' show sleep;
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:dart_smb2/dart_smb2.dart';
@@ -719,6 +720,30 @@ void main() {
       }
     });
 
+    test('an isolate that ends without disconnect() does not crash', () async {
+      // The context of a client that watched holds a request whose
+      // callback is Dart code: freeing it as the isolate goes would call
+      // it, and abort the VM.
+      final left = ReceivePort();
+      // The share root: their connections stay until the process ends,
+      // and a watched directory cannot be removed.
+      await Isolate.spawn(_watchAndLeave, '', onExit: left.sendPort);
+      await left.first;
+      final ready = ReceivePort();
+      final isolate = await Isolate.spawn(_watchAndStay, (ready.sendPort, ''));
+      await ready.first;
+      final exited = ReceivePort();
+      isolate
+        ..addOnExitListener(exited.sendPort)
+        ..kill(priority: Isolate.immediate);
+      await exited.first;
+      // Still here: collect what the isolates left.
+      for (var i = 0; i < 64; i++) {
+        Uint8List(1024 * 1024);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+
     test('disconnect closes the watchers', () {
       final c = connectClient();
       final w = c.watch(scratch.dir);
@@ -726,4 +751,15 @@ void main() {
       expect(w.isClosed, isTrue);
     });
   });
+}
+
+/// Watches [dir] and returns, leaving the client connected.
+void _watchAndLeave(String dir) => connectClient().watch(dir);
+
+/// Watches a directory and stays, until it is killed.
+Future<void> _watchAndStay((SendPort, String) init) async {
+  final c = connectClient()..watch(init.$2);
+  init.$1.send(null);
+  await Future<void>.delayed(const Duration(minutes: 1));
+  c.disconnect();
 }
