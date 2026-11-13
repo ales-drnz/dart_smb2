@@ -51,3 +51,10 @@ linter:
     - avoid_catching_errors
     - only_throw_errors
     - discarded_futures
+    - unreachable_from_main
+    - no_default_cases
+    - cast_nullable_to_non_nullable
+    - avoid_void_async
+    - deprecated_consistency
+    - missing_whitespace_between_adjacent_strings
+    - no_literal_bool_comparisons
