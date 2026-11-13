@@ -30,6 +30,7 @@ import 'dart:io';
 import 'package:code_assets/code_assets.dart';
 import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
+import 'package:meta/meta.dart';
 
 const _release = 'libsmb2-r11';
 
@@ -182,6 +183,20 @@ class _Target {
   }
 }
 
+/// The release asset, the bundled file name and the Apple slice [code]
+/// takes: what [main] works from, for the tests.
+@visibleForTesting
+({String asset, String fileName, String? appleSlice}) targetFor(
+  CodeConfig code,
+) {
+  final target = _Target.of(code);
+  return (
+    asset: target.asset,
+    fileName: target.fileName,
+    appleSlice: target.appleSlice,
+  );
+}
+
 /// Fails the build of an Android app below the API level the release's
 /// libraries are built for; a local build may target a lower one.
 void _checkAndroidApi(CodeConfig code) {
@@ -212,8 +227,19 @@ Future<File> _localAsset(Uri dir, String asset) async {
 
 /// The release [asset], downloaded once into [cacheDir] and reused by every
 /// build that asks for the same checksum.
-Future<File> _fetch(String asset, Uri cacheDir) async {
-  final expected = _sha256[asset];
+Future<File> _fetch(String asset, Uri cacheDir) => fetchAsset(asset, cacheDir);
+
+/// What [_fetch] does. The tests name a server of their own in [baseUrl],
+/// its files in [checksums], and a shorter [retryDelay].
+@visibleForTesting
+Future<File> fetchAsset(
+  String asset,
+  Uri cacheDir, {
+  String baseUrl = _baseUrl,
+  Map<String, String> checksums = _sha256,
+  Duration retryDelay = const Duration(seconds: 2),
+}) async {
+  final expected = checksums[asset];
   if (expected == null || expected.isEmpty) {
     throw StateError('dart_smb2: no SHA-256 pinned for $asset');
   }
@@ -225,9 +251,9 @@ Future<File> _fetch(String asset, Uri cacheDir) async {
   // architectures at once, and both would download the same asset.
   final partial = File('${cached.path}.$pid.part');
   try {
-    await _download('$_baseUrl/$asset', partial, asset);
+    await _download('$baseUrl/$asset', partial, asset, retryDelay);
     if (!await _matches(partial, expected)) {
-      throw StateError('dart_smb2: SHA-256 mismatch for $asset from $_baseUrl');
+      throw StateError('dart_smb2: SHA-256 mismatch for $asset from $baseUrl');
     }
     return await partial.rename(cached.path);
   } finally {
@@ -291,17 +317,22 @@ Future<bool> _matches(File file, String sha256Hex) async {
   return digest.toString() == sha256Hex;
 }
 
-/// Downloads [url] to [target], in up to three attempts, 2 and 4 seconds
-/// apart. Each attempt gets 30 seconds to connect, 60 seconds to get an
+/// Downloads [url] to [target], in up to three attempts, [retryDelay] and
+/// twice that apart: 2 and 4 seconds. Each attempt gets 30 seconds to connect, 60 seconds to get an
 /// answer (a proxy tunnel included) and 60 seconds without data in the
 /// transfer, so a network that answers nothing fails the build instead of
 /// hanging it. A client error other than 408 and 429 is not retried.
-Future<void> _download(String url, File target, String asset) async {
+Future<void> _download(
+  String url,
+  File target,
+  String asset,
+  Duration retryDelay,
+) async {
   const step = Duration(seconds: 60);
   Object? lastError;
   for (var attempt = 1; attempt <= 3; attempt++) {
     if (attempt > 1) {
-      await Future<void>.delayed(Duration(seconds: 1 << (attempt - 1)));
+      await Future<void>.delayed(retryDelay * (1 << (attempt - 2)));
     }
     final client = HttpClient()
       ..findProxy = HttpClient.findProxyFromEnvironment
