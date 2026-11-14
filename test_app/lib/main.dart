@@ -6,6 +6,9 @@
 // driver on every platform: it bundles libsmb2 through dart_smb2's build
 // hook, as an app does. The user-facing demo is example/example.dart.
 
+// Flutter 3.50 moves Material to package:material_ui and deprecates this
+// library; the shell stays on it while the package supports Flutter 3.47.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 
 void main() {
