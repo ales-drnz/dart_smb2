@@ -1,4 +1,4 @@
-## [0.4.0] - unreleased
+## [0.4.0] - 14-11-2026
 
 ### Contributions
 - [@KuZaRV99](https://github.com/KuZaRV99): found that an upload which reconnects cannot rename its temporary file, and why ([libsmb2-scripts#1](https://github.com/ales-drnz/libsmb2-scripts/pull/1)).
