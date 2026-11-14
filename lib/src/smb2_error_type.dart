@@ -107,9 +107,6 @@ enum Smb2ErrorType {
       return Smb2ErrorType.timeout;
     }
     for (final marker in _unprotectedMarkers) {
-      if (m.contains(marker)) return Smb2ErrorType.notSupported;
-    }
-    for (final marker in _unsignedSessionMarkers) {
       if (m.contains(marker)) return Smb2ErrorType.accessDenied;
     }
     for (final marker in _connectionMarkers) {
@@ -152,17 +149,14 @@ enum Smb2ErrorType {
 
 final _quotedStatus = RegExp(r'\(0x([0-9a-fA-F]{8})\)');
 
-/// libsmb2's refusals of a server that cannot give the `seal` or `signing`
-/// the connection asked for (libsmb2.c). It returns them as -ENOMEM or
-/// -EACCES, which name another failure.
+/// libsmb2's refusals of a connection that cannot have the `seal` or
+/// `signing` it asked for (libsmb2.c): a server without signing, a dialect
+/// without encryption, a guest or anonymous session, which has no key to
+/// sign with. It returns some of them as -ENOMEM, which names another
+/// failure.
 const _unprotectedMarkers = <String>[
-  'which has no encryption',
   'server does not support signing',
-];
-
-/// libsmb2's refusals of a session that has no key to sign with, a guest
-/// or anonymous one, when signing is required (libsmb2.c).
-const _unsignedSessionMarkers = <String>[
+  'which has no encryption',
   'session setup reply is not signed',
   'session key is not available',
 ];

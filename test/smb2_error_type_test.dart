@@ -126,16 +126,16 @@ void main() {
     for (final (m, type) in const [
       (
         'Signing requested but server does not support signing.',
-        Smb2ErrorType.notSupported,
+        Smb2ErrorType.accessDenied,
       ),
       (
         'Encryption required but the server negotiated dialect 0x0210, '
             'which has no encryption',
-        Smb2ErrorType.notSupported,
+        Smb2ErrorType.accessDenied,
       ),
       (
         'Server requires encryption on dialect 0x0210, which has no encryption',
-        Smb2ErrorType.notSupported,
+        Smb2ErrorType.accessDenied,
       ),
       (
         'Session setup reply is not signed but signing is required',

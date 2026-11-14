@@ -121,7 +121,7 @@ void main() {
           seal: true,
           version: Smb2Version.v210,
         ),
-        throwsType(Smb2ErrorType.notSupported),
+        throwsType(Smb2ErrorType.accessDenied),
       );
     });
   });
