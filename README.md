@@ -60,7 +60,7 @@
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.4.0
+  dart_smb2: ^0.4.1
 ```
 
 The build downloads the libsmb2 binary for each target and checks its SHA-256, so the first build needs network access.
