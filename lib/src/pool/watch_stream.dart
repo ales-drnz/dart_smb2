@@ -64,7 +64,7 @@ mixin _PoolWatch on _PoolCore {
 
     void gone() {
       port?.close();
-      _watchesRemove(stop);
+      _watches.remove(stop);
       if (!exited.isCompleted) exited.complete();
     }
 
@@ -76,7 +76,7 @@ mixin _PoolWatch on _PoolCore {
     stop = () async {
       if (!stopping) {
         stopping = true;
-        _watchesRemove(stop);
+        _watches.remove(stop);
         if (port == null) gone();
         commands?.send(null);
       }
@@ -172,6 +172,4 @@ mixin _PoolWatch on _PoolCore {
     );
     return controller.stream;
   }
-
-  void _watchesRemove(Future<void> Function() stop) => _watches.remove(stop);
 }
