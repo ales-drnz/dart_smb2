@@ -57,7 +57,7 @@ From Windows 11 24H2 and Windows Server 2025 on, a Windows machine that shares f
 
 ## Listing the shares of a server
 
-`listSharesOn` needs no pool: it connects to `IPC$` from a short-lived isolate, lists the shares and disconnects.
+`listSharesOn` needs no pool: it connects to `IPC$` from a short-lived isolate, lists the shares and disconnects. It takes `seal`, `signing` and `version` as `connect` does.
 
 ```dart
 final shares = await Smb2Pool.listSharesOn(

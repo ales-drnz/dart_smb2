@@ -56,6 +56,10 @@ final class TestServer {
 /// The server of this run.
 final server = TestServer.load();
 
+/// The share of the container that allows guests (docker-compose.yml): the
+/// directory of [TestServer.share], read only.
+const guestShare = 'guest';
+
 /// The container's account whose password is empty (docker-compose.yml).
 const emptyPasswordUser = 'nopass';
 

@@ -60,6 +60,16 @@ services:
             # (catia/fruit/streams_xattr) — fruit rewrites SMB2 CREATE
             # options and confuses libsmb2 with STATUS_NOT_SUPPORTED.
             vfs objects =
+      # The same directory for guests, read only: an unknown user, whom
+      # Samba's default `map to guest = Bad User` makes a guest, reaches it.
+      SAMBA_VOLUME_CONFIG_guest: |
+        [guest]
+            path = /shares/public
+            read only = yes
+            browseable = yes
+            guest ok = yes
+            force user = testuser
+            vfs objects =
     volumes:
       - ./volumes/share:/shares/public
     healthcheck:

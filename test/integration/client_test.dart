@@ -163,6 +163,39 @@ void main() {
       );
     });
 
+    test('a user the server maps to guest reaches a share that allows '
+        'guests, on SMB 3.1.1 too', () {
+      // Samba's default maps an unknown user to guest. A guest session has
+      // no key, and libsmb2-r12 signed its TREE_CONNECT on SMB 3.1.1 all
+      // the same: the server refused the share with ACCESS_DENIED.
+      for (final version in const [
+        Smb2Version.v302,
+        Smb2Version.v311,
+        Smb2Version.any,
+      ]) {
+        final c = Smb2Client()
+          ..connect(
+            host: server.host,
+            share: guestShare,
+            user: 'no-such-user',
+            password: 'x',
+            version: version,
+          );
+        listsAndDisconnects(c);
+      }
+      // Signing needs a key the guest session does not have.
+      expect(
+        () => Smb2Client().connect(
+          host: server.host,
+          share: guestShare,
+          user: 'no-such-user',
+          password: 'x',
+          signing: true,
+        ),
+        throwsType(Smb2ErrorType.accessDenied),
+      );
+    });
+
     test('a user with a null password logs on anonymously', () {
       // The share refuses anonymous sessions at the tree connect.
       expect(
