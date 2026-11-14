@@ -11,7 +11,7 @@
   },
   "source": {
     "repository": "https://github.com/ales-drnz/libsmb2-scripts",
-    "commit": "a6972b03da441e60bc5b29ee51fd642a2dd5ebed"
+    "commit": "68c6c65460fe99c6fa8c86fcdce2c83087c8c012"
   },
   "license": "LGPL-2.1-or-later",
   "licenseNotes": "libsmb2 is LGPL-2.1-or-later; the OpenSSL libcrypto linked statically into every binary is Apache-2.0 (LICENSE-OpenSSL.txt).",
