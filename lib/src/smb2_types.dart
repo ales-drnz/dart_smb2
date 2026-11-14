@@ -2,10 +2,11 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
-import 'package:meta/meta.dart';
+/// @docImport 'pool/pool.dart';
+/// @docImport 'smb2_client.dart';
+library;
 
-import 'pool/pool.dart';
-import 'smb2_client.dart';
+import 'package:meta/meta.dart';
 
 /// SMB share type constants (MS-SRVS 2.2.2.4), for [Smb2ShareInfo.type].
 ///

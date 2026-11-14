@@ -2,8 +2,10 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
-import 'pool/pool.dart';
-import 'smb2_client.dart';
+/// @docImport 'pool/pool.dart';
+/// @docImport 'smb2_client.dart';
+library;
+
 import 'smb2_error_type.dart';
 
 /// Exception thrown by [Smb2Client] and [Smb2Pool] for any failed

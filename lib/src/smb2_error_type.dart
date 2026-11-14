@@ -2,9 +2,10 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
-import 'dart:io' show Platform;
+/// @docImport 'smb2_exception.dart';
+library;
 
-import 'smb2_exception.dart';
+import 'dart:io' show Platform;
 
 /// What went wrong, independent of the platform the error came from.
 ///

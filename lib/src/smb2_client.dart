@@ -7,6 +7,8 @@
 /// The only Dart layer above the generated bindings
 /// (`lib/src/ffi/libsmb2.g.dart`): the context lifecycle, path validation,
 /// error classification, open flags and the read/write loops.
+///
+/// @docImport 'pool/pool.dart';
 library;
 
 import 'dart:ffi';
@@ -19,7 +21,6 @@ import 'package:meta/meta.dart';
 import 'ffi/libsmb2.g.dart';
 import 'ffi/poll.dart';
 import 'libsmb2_release.dart';
-import 'pool/pool.dart';
 import 'smb2_error_type.dart';
 import 'smb2_exception.dart';
 import 'smb2_types.dart';

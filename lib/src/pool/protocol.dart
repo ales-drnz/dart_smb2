@@ -4,6 +4,8 @@
 
 /// Messages between the main isolate's [Worker] proxy and the worker
 /// isolate (worker_main.dart). Package-private.
+///
+/// @docImport 'worker.dart';
 library;
 
 import 'dart:isolate';
@@ -11,7 +13,6 @@ import 'dart:isolate';
 import '../smb2_error_type.dart';
 import '../smb2_exception.dart';
 import '../smb2_types.dart';
-import 'worker.dart';
 
 /// What a worker can be asked to do.
 enum Op {

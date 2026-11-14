@@ -4,6 +4,8 @@
 
 /// The isolate behind [Smb2Pool.watch]: a connection of its own that waits
 /// for change notifications, so the pool's workers stay free for calls.
+///
+/// @docImport 'pool.dart';
 library;
 
 import 'dart:async';
@@ -14,7 +16,6 @@ import 'package:meta/meta.dart';
 import '../smb2_client.dart';
 import '../smb2_exception.dart';
 import '../smb2_types.dart';
-import 'pool.dart';
 import 'protocol.dart';
 
 /// What a watch isolate watches, and where it reports.

@@ -4,6 +4,8 @@
 
 /// The worker isolate: owns one [Smb2Client] and serves the [Request]s of
 /// its [Worker] proxy in order.
+///
+/// @docImport 'worker.dart';
 library;
 
 import 'dart:isolate';
@@ -12,7 +14,6 @@ import '../smb2_client.dart';
 import '../smb2_error_type.dart';
 import '../smb2_exception.dart';
 import 'protocol.dart';
-import 'worker.dart';
 
 /// Entry point of a worker isolate. Connects, then answers [Ready] — or a
 /// [Failure] with id -1 when the connection (or loading libsmb2) fails.

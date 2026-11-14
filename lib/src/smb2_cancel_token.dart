@@ -2,11 +2,13 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
+/// @docImport 'pool/pool.dart';
+library;
+
 import 'dart:async';
 
 import 'package:meta/meta.dart';
 
-import 'pool/pool.dart';
 import 'smb2_error_type.dart';
 import 'smb2_exception.dart';
 
