@@ -1,3 +1,23 @@
+## [0.4.1] - unreleased
+
+### libsmb2-r13
+**All platforms**
+- A server can no longer stop the app with oplock break notifications nobody asked for: libsmb2 acknowledged each one, and the reply to the acknowledgement made it call address 0. No memory was written.
+- A reply that stops arriving after its header, during the connect too, fails with `timeout` instead of keeping the call waiting for ever. A large reply that keeps arriving is not cut.
+- A connect whose session setup the server never completes fails after sixteen legs.
+- After a reply that could not be parsed, closing the connection no longer runs the callbacks of the requests still queued on data freed long before.
+- A call on a connection libsmb2 has closed fails at once with `connection`, not after its timeout.
+- On SMB 3.1.1 a logon the server maps to guest reaches a share that allows guests: its TREE_CONNECT is no longer signed with a key the session does not have.
+
+### All platforms
+**Changed**
+- The bundled libsmb2 is `libsmb2-r13`. A libsmb2 of your own, set through `hooks.user_defines`, must be a build of libsmb2-scripts at `libsmb2-r13`.
+
+**Fixed**
+- `Smb2Client.listShares()` and `Smb2Pool.listSharesOn()` take `seal`, `signing` and `version`, as `connect()` does: the share list travelled unsigned unless the server asked otherwise.
+- A server that cannot sign, or encrypt, what the connection requires fails with `notSupported`; it was `inUse`, which a caller retries.
+- A guest or anonymous session on a connection that requires signing fails with `accessDenied`, and a reply that fails its signature or its encryption with `connection`, also while connecting, where it was `invalidParam`.
+
 ## [0.4.0] - 14-11-2026
 
 ### Contributions
