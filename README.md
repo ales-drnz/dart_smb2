@@ -19,33 +19,6 @@
 
 ---
 
-## Installation
-
-Add `dart_smb2` to your `pubspec.yaml`:
-
-```yaml
-dependencies:
-  dart_smb2: ^0.4.0
-```
-
-The build downloads the libsmb2 binary for each target and checks its SHA-256, so the first build needs network access.
-
-## Platform requirements
-
-| Platform  | Minimum | Architecture | Size | Device | Emulator |
-| :--- | :--- | :--- | :---: | :---: | :---:
-| Android | 7.0 (SDK 24) | arm64-v8a, armeabi-v7a, x86_64 | 2.4, 1.8, 3.3 MB | Yes | Yes |
-| iOS | 13.0 | arm64, x86_64 | 1.3, 2.3 MB | Yes | Yes |
-| macOS | 10.15 | arm64, x86_64 | 1.3, 2.3 MB | Yes | - |
-| Windows | 10 | arm64, x86_64 | 1.7, 2.9 MB | Yes | - |
-| Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 2.6, 3.5 MB | Yes | - |
-
-Each library carries OpenSSL's libcrypto, linked in for SMB3 encryption with AES-GCM: that is most of its size.
-
-The package needs Dart 3.10, and Flutter 3.47 in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
-
----
-
 ## Features
 
 <table>
@@ -83,7 +56,28 @@ The package needs Dart 3.10, and Flutter 3.47 in a Flutter app. It is a plain Da
 
 ---
 
-## Quick start
+## Getting started
+
+```yaml
+dependencies:
+  dart_smb2: ^0.4.0
+```
+
+The build downloads the libsmb2 binary for each target and checks its SHA-256, so the first build needs network access.
+
+| Platform | Minimum | Architectures | Size |
+| :--- | :--- | :--- | :---: |
+| Android | 7.0 (SDK 24) | arm64-v8a, armeabi-v7a, x86_64 | 2.4, 1.8, 3.3 MB |
+| iOS | 13.0 | arm64, x86_64 | 1.3, 2.3 MB |
+| macOS | 10.15 | arm64, x86_64 | 1.3, 2.3 MB |
+| Windows | 10 | arm64, x86_64 | 1.7, 2.9 MB |
+| Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 2.6, 3.5 MB |
+
+Each library carries OpenSSL's libcrypto, linked in for SMB3 encryption with AES-GCM: that is most of its size.
+
+The package needs Dart 3.10 or later, and Flutter 3.47 or later in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
+
+### Read a share
 
 ```dart
 import 'package:dart_smb2/dart_smb2.dart';
@@ -120,9 +114,7 @@ Future<void> main() async {
 }
 ```
 
----
-
-## How it works
+### How it works
 
 `Smb2Pool` is the entry point. It runs a few worker isolates, each with its own connection to the share and its own `Smb2Client`, the synchronous client over libsmb2. Your code calls the pool from any isolate. Each call goes to the least busy worker, and its result comes back without blocking the caller.
 
@@ -195,6 +187,8 @@ A dropped connection is reconnected once for every caller, and the call repeated
 
 ### Android
 
+Add this permission to your app's manifest:
+
 ```xml
 <uses-permission android:name="android.permission.INTERNET" />
 ```
@@ -221,11 +215,13 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 - [Example](example/)
 - [CHANGELOG](CHANGELOG.md) and [MIGRATION](MIGRATION.md)
 
----
+## Licenses
+
+The package is BSD-3-Clause. The [libsmb2](https://github.com/sahlberg/libsmb2) it bundles, by Ronnie Sahlberg, is LGPL-2.1, with [OpenSSL](https://www.openssl.org)'s libcrypto (Apache-2.0) linked in. [NOTICE](NOTICE) has what an app that bundles them should include.
 
 ## Project background
 
-I wrote the bindings, the client, the pool and the build hook with Claude Code. The native library is [libsmb2](https://github.com/sahlberg/libsmb2) by Ronnie Sahlberg, licensed under the LGPL-2.1, with [OpenSSL](https://www.openssl.org)'s libcrypto (Apache-2.0) linked in: see [NOTICE](NOTICE) for what an app that bundles them should include.
+I wrote the bindings, the client, the pool and the build hook with Claude Code.
 
 Samba is a trademark of the Software Freedom Conservancy, and Windows a trademark of Microsoft. dart_smb2 is not affiliated with either.
 
