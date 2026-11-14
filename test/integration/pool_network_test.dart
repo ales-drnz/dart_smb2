@@ -16,8 +16,6 @@ import 'dart:typed_data';
 import 'package:dart_smb2/dart_smb2.dart';
 // ignore: implementation_imports, the fault injection is package-internal
 import 'package:dart_smb2/src/pool/test_hooks.dart';
-// ignore: implementation_imports, which libsmb2 is loaded is package-internal
-import 'package:dart_smb2/src/smb2_client.dart' show libsmb2SharesDelete;
 import 'package:ffi/ffi.dart';
 import 'package:test/test.dart';
 
@@ -135,12 +133,9 @@ void main() {
     test(
       'mid-upload leaves a whole file and no temporary one',
       // The connection that hung keeps the temporary file open on the
-      // server. The pool opens it sharing delete, so the rename over the
-      // new connection goes through; a libsmb2 before r12 cannot, and the
-      // rename is refused with SHARING_VIOLATION.
-      skip: libsmb2SharesDelete
-          ? null
-          : 'needs smb2_open2, which the libsmb2 loaded (before r12) lacks',
+      // server. The pool opens it sharing delete (smb2_open2), so the
+      // rename over the new connection goes through instead of failing
+      // with SHARING_VIOLATION.
       () async {
         final pool = await connectPool(
           workers: 1,
