@@ -1,3 +1,44 @@
+## [0.4.0] - unreleased
+
+### Contributions
+- [@KuZaRV99](https://github.com/KuZaRV99): found that an upload which reconnects cannot rename its temporary file, and why ([libsmb2-scripts#1](https://github.com/ales-drnz/libsmb2-scripts/pull/1)).
+
+### libsmb2-r12
+**All platforms**
+- A read or write at the end of the file reports 0 bytes, never a field of the server's error reply.
+- A read or write whose request cannot be built no longer leaks its call data.
+- `unlink` and `mkdir` report the first failure of their request, with its NT status.
+- A time the server does not keep, or one before 1970, is 0 instead of a date in the year 60056.
+- `smb2_open2()`, patched in, opens one file so that it can be renamed or removed while it is open.
+- Every library is built with a stack protector and `_FORTIFY_SOURCE=2`.
+
+**Linux and Android**
+- The libraries are linked with full RELRO.
+
+### All platforms
+**Breaking**
+- A libsmb2 of your own, set through `hooks.user_defines`, must be a build of libsmb2-scripts at `libsmb2-r12`. See MIGRATION.md.
+- `Smb2Client.readFileChunked()` fails with `io` when the file shrinks while it is read, where it stopped early without an error.
+
+**Changed**
+- A client that has watched keeps its connection until `disconnect()`: neither the garbage collector nor the end of its isolate frees it.
+- The temporary files of `uploadFile()`, `copy()` and `copyTree()` end in 16 hex digits instead of 8.
+
+**Fixed**
+- An isolate that ends while its `Smb2Client` is watching no longer aborts the whole app.
+- `uploadFile()`, `copy()` and `copyTree()` finish after the server stopped answering in the middle, and leave no temporary file: their rename failed with `inUse`.
+- A reply that counts more bytes than the read or write asked for fails with `io` instead of reading past the buffer.
+- `Smb2Stat` gives a time the server does not keep as the Unix epoch.
+- A second `Smb2Pool.disconnect()`, made while the first is closing the workers, completes with it instead of at once.
+- A pool with `timeout: Duration.zero` no longer fails to connect, or to reconnect, after 15 seconds.
+- `uploadFile()` reports a missing folder of the local file as `notFound` on Windows too.
+- `Smb2CancelToken.cancel()` reaches every call that uses the token, also when one of them throws.
+- A download that fails in the build hook closes its file, and a failed unzip leaves no folder behind.
+
+### Docs
+- The README covers a libsmb2 of your own and offline builds, the glibc the Linux libraries need, and how versions and deprecations work.
+- `readFileChunked()` says when it closes its handle.
+
 ## [0.3.0] - 8-11-2026
 
 ### libsmb2-r11
