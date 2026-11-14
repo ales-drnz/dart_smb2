@@ -6,13 +6,27 @@
 #
 # and only the integration suites with `dart test -P integration
 # test/integration`.
+#
+# The hostile suite (test/hostile) needs the fake SMB2 server of
+# libsmb2-scripts (verify/hostile/hostile_server.py), found through
+# DART_SMB2_HOSTILE_DIR, so a plain `dart test` skips it too. Run it with:
+#
+#     DART_SMB2_HOSTILE_DIR=../libsmb2-scripts/verify/hostile \
+#         dart test -P hostile test/hostile
 tags:
   integration:
     skip: 'needs the Samba container: run with -P integration'
+  hostile:
+    skip: 'needs the fake server: run with -P hostile (see dart_test.yaml)'
 
 presets:
   integration:
     concurrency: 1
     tags:
       integration:
+        skip: false
+  hostile:
+    concurrency: 1
+    tags:
+      hostile:
         skip: false
