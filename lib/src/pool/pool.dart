@@ -142,12 +142,16 @@ final class Smb2Pool extends _PoolCore
       );
 
   /// Lists the shares of [host] from a short-lived isolate, without a pool.
+  /// [seal], [signing] and [version] work as in [connect].
   static Future<List<Smb2ShareInfo>> listSharesOn({
     required String host,
     String? user,
     String? password,
     String? domain,
     Duration timeout = const Duration(seconds: 15),
+    bool seal = false,
+    bool signing = false,
+    Smb2Version version = Smb2Version.any,
   }) {
     return Isolate.run(
       () => Smb2Client.listShares(
@@ -156,6 +160,9 @@ final class Smb2Pool extends _PoolCore
         password: password,
         domain: domain,
         timeout: timeout,
+        seal: seal,
+        signing: signing,
+        version: version,
       ),
       debugName: 'dart_smb2 listShares',
     );

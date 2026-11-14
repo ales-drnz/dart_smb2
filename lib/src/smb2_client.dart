@@ -117,17 +117,35 @@ final class Smb2Client implements Finalizable {
     return smb2_get_max_write_size(_ctx);
   }
 
+  /// Sets what a connection of [ctx] must have: encryption, signatures, a
+  /// dialect.
+  static void _protect(
+    Pointer<smb2_context> ctx, {
+    required bool seal,
+    required bool signing,
+    required Smb2Version version,
+  }) {
+    if (seal) smb2_set_seal(ctx, 1);
+    if (signing) smb2_set_sign(ctx, 1);
+    if (version != Smb2Version.any) {
+      smb2_set_version(ctx, smb2_negotiate_version.fromValue(version.value));
+    }
+  }
+
   // ─── Share enumeration ───────────────────────────────────────────────────
 
   /// Lists the shares of [host], over a connection of its own to `IPC$`
   /// that it closes before returning. Needs no connected client. The
-  /// credentials work as in [connect].
+  /// credentials, [seal], [signing] and [version] work as in [connect].
   static List<Smb2ShareInfo> listShares({
     required String host,
     String? user,
     String? password,
     String? domain,
     Duration timeout = const Duration(seconds: 30),
+    bool seal = false,
+    bool signing = false,
+    Smb2Version version = Smb2Version.any,
   }) {
     final ctx = _newContext(
       user: user,
@@ -136,6 +154,7 @@ final class Smb2Client implements Finalizable {
       timeout: timeout,
     );
     try {
+      _protect(ctx, seal: seal, signing: signing, version: version);
       _connectContext(ctx, host: host, share: r'IPC$', user: user);
       try {
         final reply = smb2_share_enum_sync(
@@ -200,11 +219,7 @@ final class Smb2Client implements Finalizable {
       timeout: timeout,
     );
     try {
-      if (seal) smb2_set_seal(ctx, 1);
-      if (signing) smb2_set_sign(ctx, 1);
-      if (version != Smb2Version.any) {
-        smb2_set_version(ctx, smb2_negotiate_version.fromValue(version.value));
-      }
+      _protect(ctx, seal: seal, signing: signing, version: version);
       _connectContext(ctx, host: host, share: share, user: user);
     } catch (_) {
       smb2_destroy_context(ctx);

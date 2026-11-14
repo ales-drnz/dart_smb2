@@ -93,6 +93,37 @@ void main() {
       expect(share.isDisk, isTrue);
       expect(shares.where((s) => s.name == r'IPC$').single.isHidden, isTrue);
     });
+
+    test('listShares signs, seals and pins the version when asked', () {
+      for (final (seal, signing) in [(false, true), (true, false)]) {
+        final shares = Smb2Client.listShares(
+          host: server.host,
+          user: server.user,
+          password: server.password,
+          seal: seal,
+          signing: signing,
+          version: Smb2Version.v311,
+        );
+        expect(shares.map((s) => s.name), contains(server.share));
+      }
+      // An anonymous session has no key to sign with: before the options
+      // reached listShares it listed the shares unsigned all the same.
+      expect(
+        () => Smb2Client.listShares(host: server.host, signing: true),
+        throwsType(Smb2ErrorType.accessDenied),
+      );
+      // SMB 2.1 has no encryption.
+      expect(
+        () => Smb2Client.listShares(
+          host: server.host,
+          user: server.user,
+          password: server.password,
+          seal: true,
+          version: Smb2Version.v210,
+        ),
+        throwsType(Smb2ErrorType.notSupported),
+      );
+    });
   });
 
   group('credentials', () {

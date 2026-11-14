@@ -99,6 +99,20 @@ void main() {
       expect(shares.map((s) => s.name), contains(server.share));
     });
 
+    test('listSharesOn signs when asked', () async {
+      final shares = await Smb2Pool.listSharesOn(
+        host: server.host,
+        user: server.user,
+        password: server.password,
+        signing: true,
+      );
+      expect(shares.map((s) => s.name), contains(server.share));
+      await expectLater(
+        Smb2Pool.listSharesOn(host: server.host, signing: true),
+        throwsType(Smb2ErrorType.accessDenied),
+      );
+    });
+
     test('a closed pool refuses calls with state', () async {
       final p = await connectPool(workers: 1);
       await p.disconnect();
