@@ -1,4 +1,4 @@
-## [0.4.1] - unreleased
+## [0.4.1] - 15-11-2026
 
 ### libsmb2-r13
 **All platforms**
@@ -15,8 +15,8 @@
 
 **Fixed**
 - `Smb2Client.listShares()` and `Smb2Pool.listSharesOn()` take `seal`, `signing` and `version`, as `connect()` does: the share list travelled unsigned unless the server asked otherwise.
-- A server that cannot sign, or encrypt, what the connection requires fails with `notSupported`; it was `inUse`, which a caller retries.
-- A guest or anonymous session on a connection that requires signing fails with `accessDenied`, and a reply that fails its signature or its encryption with `connection`, also while connecting, where it was `invalidParam`.
+- A server that cannot sign what `signing: true` requires fails with `accessDenied`, as a server that cannot encrypt does; it was `inUse`, which a caller retries.
+- A reply that fails its signature while connecting fails with `connection`, as it does afterwards; it was `invalidParam`.
 
 ## [0.4.0] - 14-11-2026
 
