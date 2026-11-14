@@ -1,3 +1,49 @@
+# Migrating to 0.4.0
+
+0.4.0 fixes and hardens; it adds no API and removes none. Code that
+builds with 0.3.0 builds with 0.4.0 unchanged. Three things behave
+differently.
+
+## libsmb2-r12
+
+The hook bundles `libsmb2-r12`. A libsmb2 of your own that
+`hooks.user_defines` points at must be a build of libsmb2-scripts at
+`libsmb2-r12`: with `libsmb2-r11`, as with any other release, connecting
+fails with an `Smb2Exception` of type `notSupported` that names the
+release it found. Point `hooks.user_defines` at a copy of the
+`libsmb2-r12` release, or at libsmb2-scripts' `release_builds/` built at
+`libsmb2-r12`.
+
+## readFileChunked and a file that shrinks
+
+`Smb2Client.readFileChunked()` throws an `Smb2Exception` of type `io`
+when the file gets shorter while it is read, as `Smb2Pool.streamFile()`
+does. It used to end the iteration early, so the caller had part of the
+file and no error.
+
+| 0.3.0 | 0.4.0 |
+| --- | --- |
+| The iteration ends before the size the file had when opened | An `Smb2Exception` of type `io` |
+
+## A client that has watched
+
+Once `Smb2Client.watch()` has been called, only `disconnect()` frees the
+client's connection. Call it before the isolate ends:
+
+```dart
+final client = Smb2Client()..connect(host: host, share: share);
+try {
+  final watcher = client.watch('Inbox');
+  // ...
+} finally {
+  client.disconnect();
+}
+```
+
+In 0.3.0 an isolate that ended, or was killed, with a watching client
+aborted the app. In 0.4.0 it does not, and the connection stays open
+until the process ends. `Smb2Pool.watch()` needs no change.
+
 # Migrating to 0.3.0
 
 0.3.0 removes what 0.2.0 deprecated. Code that builds with 0.2.x
