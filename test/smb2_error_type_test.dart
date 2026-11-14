@@ -121,6 +121,49 @@ void main() {
       });
     }
 
+    // The messages libsmb2 refuses a server with; the errno it returns
+    // with them (ENOMEM, EINVAL, EACCES) names another failure.
+    for (final (m, type) in const [
+      (
+        'Signing requested but server does not support signing.',
+        Smb2ErrorType.notSupported,
+      ),
+      (
+        'Encryption required but the server negotiated dialect 0x0210, '
+            'which has no encryption',
+        Smb2ErrorType.notSupported,
+      ),
+      (
+        'Server requires encryption on dialect 0x0210, which has no encryption',
+        Smb2ErrorType.notSupported,
+      ),
+      (
+        'Session setup reply is not signed but signing is required',
+        Smb2ErrorType.accessDenied,
+      ),
+      (
+        'Signing required by server. Session Key is not available',
+        Smb2ErrorType.accessDenied,
+      ),
+      ('Wrong signature in received PDU', Smb2ErrorType.connection),
+      (
+        'PDU for command 8 is not signed but signing is required',
+        Smb2ErrorType.connection,
+      ),
+      (
+        'Unencrypted PDU received on an encrypted session',
+        Smb2ErrorType.connection,
+      ),
+      ('Failed to decrypyt pdu', Smb2ErrorType.connection),
+      ('Not connected to a server', Smb2ErrorType.connection),
+    ]) {
+      test('"$m" is ${type.name}', () {
+        expect(Smb2ErrorType.fromMessage(m), type);
+        // Whatever errno came with it.
+        expect(Smb2ErrorType.fromFailure(message: m, errno: 12), type);
+      });
+    }
+
     test('timeouts', () {
       expect(
         Smb2ErrorType.fromMessage('Timeout expired and no connection exists'),

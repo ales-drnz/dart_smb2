@@ -106,6 +106,12 @@ enum Smb2ErrorType {
     if (m.contains('timeout expired') || m.contains('timed out')) {
       return Smb2ErrorType.timeout;
     }
+    for (final marker in _unprotectedMarkers) {
+      if (m.contains(marker)) return Smb2ErrorType.notSupported;
+    }
+    for (final marker in _unsignedSessionMarkers) {
+      if (m.contains(marker)) return Smb2ErrorType.accessDenied;
+    }
     for (final marker in _connectionMarkers) {
       if (m.contains(marker)) return Smb2ErrorType.connection;
     }
@@ -146,9 +152,32 @@ enum Smb2ErrorType {
 
 final _quotedStatus = RegExp(r'\(0x([0-9a-fA-F]{8})\)');
 
+/// libsmb2's refusals of a server that cannot give the `seal` or `signing`
+/// the connection asked for (libsmb2.c). It returns them as -ENOMEM or
+/// -EACCES, which name another failure.
+const _unprotectedMarkers = <String>[
+  'which has no encryption',
+  'server does not support signing',
+];
+
+/// libsmb2's refusals of a session that has no key to sign with, a guest
+/// or anonymous one, when signing is required (libsmb2.c).
+const _unsignedSessionMarkers = <String>[
+  'session setup reply is not signed',
+  'session key is not available',
+];
+
 /// Substrings of libsmb2's transport-failure messages (socket.c, sync.c,
 /// libsmb2.c, pdu.c).
 const _connectionMarkers = <String>[
+  // A reply that fails the signature or the encryption of its session:
+  // altered on the way, or not from the server.
+  'wrong signature in received pdu',
+  'is not signed but signing is required',
+  'unencrypted pdu received',
+  'failed to decrypyt pdu', // sic, upstream's spelling
+  'failed to decrypt pdu',
+  'transform header received before',
   'pollhup',
   'pollerr',
   'socket error',
