@@ -34,3 +34,6 @@ dart_test.yaml
 
 # On-device integration tests: a Flutter app of their own
 /test_app/
+
+# Repository housekeeping
+.git-blame-ignore-revs

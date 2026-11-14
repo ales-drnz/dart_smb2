@@ -1,0 +1,8 @@
+# Commits that only move code, for git blame --ignore-revs-file and GitHub.
+#
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# smb2_client.dart split into parts under client/
+0fda2e579f38e11c7e1d86bc2f63436046b39788
+# pool.dart split into parts under pool/
+e3206bced99911bfcd9b07fc598fe59569f03703
