@@ -27,8 +27,8 @@ container's `public`, `testuser` and `testpass`; any share that holds the
 local network access the first time.
 
 Before a libsmb2 release is published, point the hook at local binaries in
-this app's `pubspec.yaml` (`hooks.user_defines.dart_smb2.libsmb2`), as the
-package README describes.
+this app's `pubspec.yaml` (`hooks.user_defines.dart_smb2.libsmb2`), as
+MIGRATION.md describes.
 
 CI runs the suite on every platform (`device` job of
 `.github/workflows/ci.yml`): Android and Linux against the Samba container,

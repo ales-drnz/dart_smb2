@@ -366,7 +366,7 @@ Future<void> _download(
   throw StateError(
     'dart_smb2: cannot download $asset from $url ($lastError). To build '
     'offline, point hooks.user_defines.dart_smb2.libsmb2 at a local copy '
-    '(see the package README).',
+    'of the release (see MIGRATION.md).',
   );
 }
 

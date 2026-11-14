@@ -10,9 +10,9 @@ The hook bundles `libsmb2-r12`. A libsmb2 of your own that
 `hooks.user_defines` points at must be a build of libsmb2-scripts at
 `libsmb2-r12`: with `libsmb2-r11`, as with any other release, connecting
 fails with an `Smb2Exception` of type `notSupported` that names the
-release it found. Point `hooks.user_defines` at a copy of the
-`libsmb2-r12` release, or at libsmb2-scripts' `release_builds/` built at
-`libsmb2-r12`.
+release it found. An offline build points `hooks.user_defines` at a copy
+of the `libsmb2-r12` release, or at libsmb2-scripts' `release_builds/`
+built at `libsmb2-r12`, with the entry shown under 0.2.0 below.
 
 ## readFileChunked and a file that shrinks
 

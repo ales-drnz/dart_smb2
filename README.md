@@ -28,6 +28,8 @@ dependencies:
   dart_smb2: ^0.4.0
 ```
 
+The build downloads the libsmb2 library of each target from the [`libsmb2-r12` release](https://github.com/ales-drnz/dart_smb2/releases/tag/libsmb2-r12) and checks its SHA-256, so the first build needs network access.
+
 ## Platform requirements
 
 | Platform  | Minimum | Architecture | Size | Device | Emulator |
@@ -207,26 +209,6 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 <key>com.apple.security.network.client</key>
 <true/>
 ```
-
----
-
-## Your own libsmb2 and offline builds
-
-The build hook downloads the library of each target from the [`libsmb2-r12` release](https://github.com/ales-drnz/dart_smb2/releases/tag/libsmb2-r12), checks its SHA-256 and keeps it under `.dart_tool`: the first build of a target needs the network, and so does the first after `flutter clean`. The download honours `HTTPS_PROXY` and `NO_PROXY`.
-
-To build without the network, or with a libsmb2 you built, point the hook at local files in the app's `pubspec.yaml` (the root one of a pub workspace); a relative path starts from that file's directory:
-
-```yaml
-hooks:
-  user_defines:
-    dart_smb2:
-      libsmb2: path/to/libsmb2
-```
-
-- **A directory** holds files named like the release's: `libsmb2_android-arm64-v8a.so`, `libsmb2_android-armeabi-v7a.so`, `libsmb2_android-x86_64.so`, `libsmb2_linux-aarch64.so`, `libsmb2_linux-x86_64.so`, `libsmb2_windows-arm64.dll`, `libsmb2_windows-x86_64.dll`, `libsmb2_ios.xcframework.zip` and `libsmb2_macos.xcframework.zip`. Each target takes its own, and only the ones you build for need to be there. A copy of the release's files works, and so does the `release_builds/` of [libsmb2-scripts](https://github.com/ales-drnz/libsmb2-scripts).
-- **A single file** is the finished library, bundled as it is for every target: it suits an app built for one platform and architecture.
-
-Local files are bundled without a checksum, and the hook does not hold an Android app to `minSdk` 24 with them. They must be builds of libsmb2-scripts at `libsmb2-r12`: with another release, or upstream libsmb2, connecting fails with an `Smb2Exception` of type `notSupported`.
 
 ---
 

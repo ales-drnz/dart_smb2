@@ -19,7 +19,7 @@ The bootstrap starts the container with `docker compose up --wait`, gives its `t
 
 `pool_network_test.dart` puts a TCP proxy of its own (`TcpProxy` in `_fixture.dart`) between the pool and the container, to cut, freeze and refuse connections.
 
-The library comes from the build hook as in any app: the pinned release, or the binaries `hooks.user_defines` points at (see the package README).
+The library comes from the build hook as in any app: the pinned release, or the binaries `hooks.user_defines` points at (see MIGRATION.md).
 
 ## On the device
 
