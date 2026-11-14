@@ -234,7 +234,7 @@ void main() {
         final w = poolWorkers(pool).first;
         await w.hangNext();
         final token = Smb2CancelToken();
-        final hung = w.call<Object?>(Op.stat, [seedFile], cancelToken: token);
+        final hung = w.call(const Stat(seedFile), cancelToken: token);
         token.cancel();
         await expectLater(hung, throwsType(Smb2ErrorType.cancelled));
         // The worker never answers it: it still counts.
@@ -400,12 +400,10 @@ void main() {
       final closing = w.close();
       final freed = Worker.debugBuffersFreed;
       await expectLater(
-        w.call<void>(Op.writeFile, [
-          scratch.path('closing.bin'),
-          nativeBuffer(4),
-          4,
-          0,
-        ]),
+        w.call(
+          WriteFile(scratch.path('closing.bin'), 4),
+          buffer: nativeBuffer(4),
+        ),
         throwsType(Smb2ErrorType.connection),
       );
       expect(w.debugHeldBuffers, 0);
@@ -427,12 +425,10 @@ void main() {
         proxy.freeze();
         final writes = [
           for (var i = 0; i < 4; i++)
-            w.call<void>(Op.writeFile, [
-              scratch.path('killed_$i.bin'),
-              nativeBuffer(1 << 20),
-              1 << 20,
-              0,
-            ]),
+            w.call(
+              WriteFile(scratch.path('killed_$i.bin'), 1 << 20),
+              buffer: nativeBuffer(1 << 20),
+            ),
         ];
         await Future<void>.delayed(const Duration(milliseconds: 200));
         w.killForTest();

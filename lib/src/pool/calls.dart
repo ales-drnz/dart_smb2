@@ -12,11 +12,11 @@ mixin _PoolCalls on _PoolCore {
   Future<List<Smb2DirEntry>> listDirectory(
     String path, {
     Smb2CancelToken? cancelToken,
-  }) => _run(Op.listDirectory, [path], path: path, cancelToken: cancelToken);
+  }) => _run(ListDirectory(path), path: path, cancelToken: cancelToken);
 
   /// The metadata of [path].
   Future<Smb2Stat> stat(String path, {Smb2CancelToken? cancelToken}) =>
-      _run(Op.stat, [path], path: path, cancelToken: cancelToken);
+      _run(Stat(path), path: path, cancelToken: cancelToken);
 
   /// The size of the file at [path], in bytes.
   Future<int> fileSize(String path, {Smb2CancelToken? cancelToken}) async =>
@@ -36,23 +36,22 @@ mixin _PoolCalls on _PoolCore {
 
   /// Space statistics of the share that holds [path] (`''` for the root).
   Future<Smb2StatVfs> statvfs(String path, {Smb2CancelToken? cancelToken}) =>
-      _run(Op.statvfs, [path], path: path, cancelToken: cancelToken);
+      _run(StatVfs(path), path: path, cancelToken: cancelToken);
 
   /// The target of the symbolic link at [path].
   Future<String> readlink(String path, {Smb2CancelToken? cancelToken}) =>
-      _run(Op.readlink, [path], path: path, cancelToken: cancelToken);
+      _run(Readlink(path), path: path, cancelToken: cancelToken);
 
   /// Sends a keepalive echo on one worker. Completes when its connection is
   /// healthy, reconnecting it first when it is not.
   Future<void> echo({Smb2CancelToken? cancelToken}) =>
-      _run<void>(Op.echo, const [], cancelToken: cancelToken);
+      _run<void>(const Echo(), cancelToken: cancelToken);
 
   /// Deletes the file [path]; a directory, or a link to one, fails with
   /// [Smb2ErrorType.isADirectory] (remove it with [Smb2Pool.rmdir]). Not repeated
   /// after a network failure.
   Future<void> deleteFile(String path, {Smb2CancelToken? cancelToken}) => _run(
-    Op.deleteFile,
-    [path],
+    DeleteFile(path),
     path: path,
     idempotent: false,
     cancelToken: cancelToken,
@@ -72,8 +71,7 @@ mixin _PoolCalls on _PoolCore {
     bool overwrite = false,
     Smb2CancelToken? cancelToken,
   }) => _run(
-    Op.rename,
-    [oldPath, newPath, overwrite],
+    Rename(oldPath, newPath, overwrite: overwrite),
     path: oldPath,
     idempotent: false,
     cancelToken: cancelToken,
@@ -86,8 +84,7 @@ mixin _PoolCalls on _PoolCore {
     String newPath, {
     Smb2CancelToken? cancelToken,
   }) => _run(
-    Op.link,
-    [existingPath, newPath],
+    Link(existingPath, newPath),
     path: newPath,
     idempotent: false,
     cancelToken: cancelToken,
@@ -101,8 +98,7 @@ mixin _PoolCalls on _PoolCore {
     bool directory = false,
     Smb2CancelToken? cancelToken,
   }) => _run(
-    Op.symlink,
-    [target, linkPath, directory],
+    Symlink(target, linkPath, directory: directory),
     path: linkPath,
     idempotent: false,
     cancelToken: cancelToken,
@@ -113,7 +109,7 @@ mixin _PoolCalls on _PoolCore {
     String path,
     int length, {
     Smb2CancelToken? cancelToken,
-  }) => _run(Op.truncate, [path, length], path: path, cancelToken: cancelToken);
+  }) => _run(Truncate(path, length), path: path, cancelToken: cancelToken);
 
   /// Sets the last-modified and/or last-accessed time of [path]; see
   /// [Smb2Client.setFileTimes].
@@ -123,8 +119,11 @@ mixin _PoolCalls on _PoolCore {
     DateTime? accessed,
     Smb2CancelToken? cancelToken,
   }) => _run(
-    Op.setFileTimes,
-    [path, modified?.microsecondsSinceEpoch, accessed?.microsecondsSinceEpoch],
+    SetFileTimes(
+      path,
+      modifiedUs: modified?.microsecondsSinceEpoch,
+      accessedUs: accessed?.microsecondsSinceEpoch,
+    ),
     path: path,
     cancelToken: cancelToken,
   );
@@ -132,7 +131,7 @@ mixin _PoolCalls on _PoolCore {
   /// Reads the whole file at [path] into memory. For large files prefer
   /// [Smb2Pool.streamFile] or [Smb2Pool.downloadToFile].
   Future<Uint8List> readFile(String path, {Smb2CancelToken? cancelToken}) =>
-      _run(Op.readFile, [path], path: path, cancelToken: cancelToken);
+      _run(ReadFile(path), path: path, cancelToken: cancelToken);
 
   /// Reads [length] bytes of [path] from [offset]: fewer only when the file
   /// ends first.
@@ -142,8 +141,7 @@ mixin _PoolCalls on _PoolCore {
     required int length,
     Smb2CancelToken? cancelToken,
   }) => _run(
-    Op.readRange,
-    [path, offset, length],
+    ReadRange(path, offset, length),
     path: path,
     cancelToken: cancelToken,
   );
@@ -159,8 +157,8 @@ mixin _PoolCalls on _PoolCore {
     Uint8List data, {
     Smb2CancelToken? cancelToken,
   }) => _run(
-    Op.writeFile,
-    () => [path, _native(data), data.length, 0],
+    WriteFile(path, data.length),
+    buffer: () => _native(data),
     path: path,
     cancelToken: cancelToken,
   );
@@ -174,8 +172,8 @@ mixin _PoolCalls on _PoolCore {
     int offset = 0,
     Smb2CancelToken? cancelToken,
   }) => _run(
-    Op.writeRange,
-    () => [path, _native(data), data.length, offset],
+    WriteRange(path, data.length, offset),
+    buffer: () => _native(data),
     path: path,
     cancelToken: cancelToken,
   );
@@ -184,8 +182,7 @@ mixin _PoolCalls on _PoolCore {
   /// [readFromHandle], then [closeHandle] — or use [Smb2Pool.withFile].
   Future<Smb2PoolHandle> openFile(String path, {Smb2CancelToken? cancelToken}) {
     return _dispatch<int, Smb2PoolHandle>(
-      Op.open,
-      [path],
+      Open(path),
       (slot, id) =>
           Smb2PoolHandleInternal.create(slot, id, path, writable: false),
       path: path,
@@ -199,8 +196,7 @@ mixin _PoolCalls on _PoolCore {
     Smb2CancelToken? cancelToken,
   }) {
     return _dispatch<(int, int), (Smb2PoolHandle, int)>(
-      Op.openWithSize,
-      [path],
+      OpenWithSize(path),
       (slot, opened) => (
         Smb2PoolHandleInternal.create(slot, opened.$1, path, writable: false),
         opened.$2,
@@ -230,8 +226,7 @@ mixin _PoolCalls on _PoolCore {
     Smb2CancelToken? cancelToken,
   }) {
     return _dispatch<int, Smb2PoolHandle>(
-      Op.openWrite,
-      [path, truncate, temporary],
+      OpenWrite(path, truncate: truncate, temporary: temporary),
       (slot, id) => Smb2PoolHandleInternal.create(
         slot,
         id,
@@ -253,8 +248,7 @@ mixin _PoolCalls on _PoolCore {
     Smb2CancelToken? cancelToken,
   }) => _onHandle(
     handle,
-    Op.readHandle,
-    (id) => [id, offset, length],
+    (id) => ReadHandle(id, offset, length),
     cancelToken: cancelToken,
   );
 
@@ -267,8 +261,8 @@ mixin _PoolCalls on _PoolCore {
     Smb2CancelToken? cancelToken,
   }) => _onHandle(
     handle,
-    Op.writeHandle,
-    (id) => [id, _native(data), data.length, offset],
+    (id) => WriteHandle(id, data.length, offset),
+    buffer: () => _native(data),
     cancelToken: cancelToken,
   );
 
@@ -276,8 +270,7 @@ mixin _PoolCalls on _PoolCore {
   Future<void> fsyncHandle(
     Smb2PoolHandle handle, {
     Smb2CancelToken? cancelToken,
-  }) =>
-      _onHandle(handle, Op.fsyncHandle, (id) => [id], cancelToken: cancelToken);
+  }) => _onHandle(handle, FsyncHandle.new, cancelToken: cancelToken);
 
   /// Truncates (or extends with zeros) the file of [handle] to [length]
   /// bytes.
@@ -287,8 +280,7 @@ mixin _PoolCalls on _PoolCore {
     Smb2CancelToken? cancelToken,
   }) => _onHandle(
     handle,
-    Op.ftruncateHandle,
-    (id) => [id, length],
+    (id) => FtruncateHandle(id, length),
     cancelToken: cancelToken,
   );
 
@@ -301,7 +293,7 @@ mixin _PoolCalls on _PoolCore {
     if (target == null) return;
     final (worker, id) = target;
     final done = worker
-        .call<void>(Op.closeHandle, [id])
+        .call(CloseHandle(id))
         // The worker is gone or reconnecting; its handles went with it.
         .catchError((Object _) {}, test: (e) => e is Smb2Exception);
     final key = _pathKey(handle.path);

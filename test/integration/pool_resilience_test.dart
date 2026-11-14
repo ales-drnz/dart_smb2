@@ -139,9 +139,9 @@ void main() {
       () async {
         final worker = poolWorkers(pool).single;
         await worker.hangNext();
-        final pending = worker.call<Object?>(Op.echo, const []);
+        final pending = worker.call(const Echo());
         final parallel = [
-          for (var i = 0; i < 3; i++) worker.call<Object?>(Op.echo, const []),
+          for (var i = 0; i < 3; i++) worker.call(const Echo()),
         ];
         worker.killForTest();
         await expectLater(pending, throwsType(Smb2ErrorType.connection));

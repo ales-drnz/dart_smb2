@@ -217,35 +217,38 @@ final class Worker {
     };
   }
 
-  /// Sends [op] with [args] and returns its result. Byte results arrive as
+  /// Sends [request] and returns its result. Byte results arrive as
   /// [Uint8List]s over the worker's native buffers, without a copy.
   ///
   /// When [cancelToken] is cancelled first, completes with the
   /// cancellation at once; the worker still finishes the request, and its
   /// result is freed (a handle it opened is closed).
   ///
-  /// A write's native buffer (`args[1]`) stays this side's: it is freed
-  /// here when the reply arrives, at once when the request is not sent,
-  /// and once the isolate has exited when the worker never answers.
+  /// The native [buffer] of a [Write] stays this side's: it is freed here
+  /// when the reply arrives, at once when the request is not sent, and
+  /// once the isolate has exited when the worker never answers.
   ///
   /// Once [close] has started, fails at once with a
   /// [Smb2ErrorType.connection] error, like a dead worker: the worker
   /// would never run the request.
   Future<T> call<T>(
-    Op op,
-    List<Object?> args, {
+    Request<T> request, {
+    int? buffer,
     Smb2CancelToken? cancelToken,
     String? path,
-  }) => _send(op, args, cancelToken: cancelToken, path: path);
+  }) => _send(request, buffer: buffer, cancelToken: cancelToken, path: path);
 
   Future<T> _send<T>(
-    Op op,
-    List<Object?> args, {
+    Request<T> request, {
+    int? buffer,
     Smb2CancelToken? cancelToken,
     String? path,
     bool closing = false,
   }) {
-    final buffer = _writeBuffer(op, args);
+    assert(
+      (request is Write) == (buffer != null),
+      'a buffer goes with a write, and only with one',
+    );
     if (cancelToken != null && cancelToken.isCancelled) {
       _free(buffer);
       return Future.error(cancelToken.cancelledException(path: path));
@@ -255,25 +258,26 @@ final class Worker {
       return Future.error(_gone(path));
     }
     final id = _nextId++;
-    final pending = _Pending<T>(op, path, buffer);
+    final pending = _Pending<T>(request, path, buffer);
     _pending[id] = pending;
     if (cancelToken != null) {
       pending.unregister = cancelToken.register(() {
         if (_pending.remove(id) == null) return;
-        _abandoned[id] = _Abandoned(op, buffer);
+        _abandoned[id] = _Abandoned(request, buffer);
         pending.completer.completeError(
           cancelToken.cancelledException(path: path),
         );
       });
     }
-    _commands.send(Request(id, op, args));
+    _commands.send(Call(id, request, buffer));
     return pending.completer.future;
   }
 
-  /// Sends [op], which carries no buffer, without waiting for a reply.
-  void post(Op op, List<Object?> args) {
+  /// Sends [request], which carries no buffer, without waiting for a
+  /// reply.
+  void post(Request<Object?> request) {
     if (_dead) return;
-    _commands.send(Request(0, op, args));
+    _commands.send(Call(0, request));
   }
 
   void _receive(Object? message) {
@@ -283,13 +287,13 @@ final class Worker {
         if (pending == null) {
           final abandoned = _abandoned.remove(id);
           _free(abandoned?.buffer);
-          _dispose(abandoned?.op, value);
+          _dispose(abandoned?.request, value);
           return;
         }
         _free(pending.buffer);
         pending.unregister?.call();
         if (_dead) {
-          _dispose(pending.op, value);
+          _dispose(pending.request, value);
         } else {
           pending.complete(_unwrap(value));
         }
@@ -331,9 +335,8 @@ final class Worker {
     final closing = _closing = Completer<void>();
     if (!_dead) {
       try {
-        await _send<void>(
-          Op.close,
-          const [],
+        await _send(
+          const Close(),
           closing: true,
         ).timeout(const Duration(seconds: 5));
       } catch (_) {
@@ -393,15 +396,15 @@ final class Worker {
   );
 
   /// Frees what an abandoned request returned.
-  void _dispose(Op? op, Object? value) {
+  void _dispose(Request<Object?>? request, Object? value) {
     switch (value) {
       case NativeBytes(:final address) when address != 0:
         malloc.free(Pointer<Uint8>.fromAddress(address));
         debugReadBuffersFreed++;
-      case final int id when op != null && op.opensHandle:
-        post(Op.closeHandle, [id]);
-      case (final int id, int _) when op == Op.openWithSize:
-        post(Op.closeHandle, [id]);
+      case final int id when request is OpensHandle:
+        post(CloseHandle(id));
+      case (final int id, int _) when request is OpenWithSize:
+        post(CloseHandle(id));
     }
   }
 }
@@ -422,10 +425,6 @@ Object? _unwrap(Object? value) => switch (value) {
   _ => value,
 };
 
-/// The native buffer a write request carries, if [op] is a write.
-int? _writeBuffer(Op op, List<Object?> args) =>
-    op.carriesBuffer ? args[1]! as int : null;
-
 void _free(int? buffer) {
   if (buffer == null) return;
   malloc.free(Pointer<Uint8>.fromAddress(buffer));
@@ -435,18 +434,18 @@ void _free(int? buffer) {
 void _noop() {}
 
 final class _Pending<T> {
-  final Op op;
+  final Request<T> request;
   final String? path;
   final int? buffer;
   final Completer<T> completer = Completer<T>();
   void Function()? unregister;
-  _Pending(this.op, this.path, this.buffer);
+  _Pending(this.request, this.path, this.buffer);
 
   void complete(Object? value) => completer.complete(value as T);
 }
 
 final class _Abandoned {
-  final Op op;
+  final Request<Object?> request;
   final int? buffer;
-  const _Abandoned(this.op, this.buffer);
+  const _Abandoned(this.request, this.buffer);
 }

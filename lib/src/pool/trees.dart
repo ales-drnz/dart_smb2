@@ -21,8 +21,7 @@ mixin _PoolTrees on _PoolCore, _PoolCalls, _PoolTransfers {
   }) async {
     if (!recursive) {
       return _run(
-        Op.mkdir,
-        [path],
+        Mkdir(path),
         path: path,
         idempotent: false,
         cancelToken: cancelToken,
@@ -51,7 +50,7 @@ mixin _PoolTrees on _PoolCore, _PoolCalls, _PoolTransfers {
     for (var i = have + 1; i <= parts.length; i++) {
       final dir = parts.take(i).join('/');
       try {
-        await _run<void>(Op.mkdir, [dir], path: dir, cancelToken: cancelToken);
+        await _run<void>(Mkdir(dir), path: dir, cancelToken: cancelToken);
       } on Smb2Exception catch (e) {
         // Made meanwhile, by another client or by a repeat.
         if (e.type != Smb2ErrorType.alreadyExists ||
@@ -90,8 +89,7 @@ mixin _PoolTrees on _PoolCore, _PoolCalls, _PoolTransfers {
   }) async {
     if (!recursive) {
       return _run(
-        Op.rmdir,
-        [path],
+        Rmdir(path),
         path: path,
         idempotent: false,
         cancelToken: cancelToken,
@@ -114,8 +112,7 @@ mixin _PoolTrees on _PoolCore, _PoolCalls, _PoolTransfers {
     final name = root.substring(slash + 1).toLowerCase();
     // The parent's listing, as a stat stops at a link made over SMB.
     var (parentId, _, siblings) = await _run<(int, int, List<Smb2DirEntry>)>(
-      Op.listDirectoryIds,
-      [parent],
+      ListDirectoryIds(parent),
       path: parent,
       cancelToken: cancelToken,
     );
@@ -176,7 +173,7 @@ mixin _PoolTrees on _PoolCore, _PoolCalls, _PoolTransfers {
       byDepth.putIfAbsent('/'.allMatches(d).length, () => []).add(d);
     }
     for (final depth in byDepth.keys.toList()..sort((a, b) => b - a)) {
-      await _each(byDepth[depth]!, (d) => _gone(Op.rmdir, d, cancelToken));
+      await _each(byDepth[depth]!, (d) => _gone(Rmdir(d), d, cancelToken));
     }
   }
 
@@ -190,17 +187,12 @@ mixin _PoolTrees on _PoolCore, _PoolCalls, _PoolTransfers {
   /// Removes the file or link [path]; gone already is done.
   Future<void> _removeEntry(String path, Smb2CancelToken? cancelToken) async {
     try {
-      await _run<void>(
-        Op.deleteFile,
-        [path],
-        path: path,
-        cancelToken: cancelToken,
-      );
+      await _run<void>(DeleteFile(path), path: path, cancelToken: cancelToken);
     } on Smb2Exception catch (err) {
       if (err.isNotFound) return;
       // A link to a directory goes with rmdir, which leaves its target.
       if (err.type != Smb2ErrorType.isADirectory) rethrow;
-      await _gone(Op.rmdir, path, cancelToken);
+      await _gone(Rmdir(path), path, cancelToken);
     }
   }
 
@@ -229,11 +221,15 @@ mixin _PoolTrees on _PoolCore, _PoolCalls, _PoolTransfers {
     if (error case final e?) Error.throwWithStackTrace(e, trace!);
   }
 
-  /// Runs [op] on [path], repeated after a network failure, and takes a
-  /// missing path for done.
-  Future<void> _gone(Op op, String path, Smb2CancelToken? cancelToken) async {
+  /// Runs [request] on [path], repeated after a network failure, and takes
+  /// a missing path for done.
+  Future<void> _gone(
+    Request<void> request,
+    String path,
+    Smb2CancelToken? cancelToken,
+  ) async {
     try {
-      await _run<void>(op, [path], path: path, cancelToken: cancelToken);
+      await _run(request, path: path, cancelToken: cancelToken);
     } on Smb2Exception catch (e) {
       if (!e.isNotFound) rethrow;
     }
@@ -365,8 +361,7 @@ mixin _PoolTrees on _PoolCore, _PoolCalls, _PoolTransfers {
       }
       final dir = _under(root, rel);
       final (self, up, entries) = await _run<(int, int, List<Smb2DirEntry>)>(
-        Op.listDirectoryIds,
-        [dir],
+        ListDirectoryIds(dir),
         path: dir,
         cancelToken: cancelToken,
       );

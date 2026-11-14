@@ -337,8 +337,7 @@ mixin _PoolTransfers on _PoolCore, _PoolCalls {
     } catch (_) {
       if (!_closed) {
         await _run<void>(
-          Op.deleteFile,
-          [part],
+          DeleteFile(part),
           path: part,
         ).catchError((Object _) {}, test: (e) => e is Smb2Exception);
       }

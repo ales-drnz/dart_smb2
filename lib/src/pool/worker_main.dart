@@ -2,7 +2,7 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
-/// The worker isolate: owns one [Smb2Client] and serves the [Request]s of
+/// The worker isolate: owns one [Smb2Client] and serves the [Call]s of
 /// its [Worker] proxy in order.
 ///
 /// @docImport 'worker.dart';
@@ -53,7 +53,7 @@ void workerMain(Init init) {
   final commands = ReceivePort();
   final server = _Server(client, replies, commands);
   replies.send(Ready(commands.sendPort));
-  commands.listen((Object? message) => server.handle(message! as Request));
+  commands.listen((Object? message) => server.handle(message! as Call));
 }
 
 final class _Server {
@@ -63,15 +63,16 @@ final class _Server {
   final Map<int, Smb2Handle> handles = {};
   int nextHandle = 1;
 
-  // Test-only fault injection (Op.inject*).
+  // Test-only fault injection (the Injection requests).
   int failNext = 0;
   bool hangNext = false;
   bool emptyReadNext = false;
 
   _Server(this.client, this.replies, this.commands);
 
-  void handle(Request r) {
-    if (!r.op.isInjection) {
+  void handle(Call c) {
+    final r = c.request;
+    if (r is! Injection) {
       if (hangNext) {
         hangNext = false;
         return;
@@ -79,7 +80,7 @@ final class _Server {
       if (failNext > 0) {
         failNext--;
         _fail(
-          r,
+          c,
           const Smb2Exception(
             'Injected connection failure',
             type: Smb2ErrorType.connection,
@@ -89,22 +90,22 @@ final class _Server {
       }
     }
     try {
-      final value = _run(r);
-      if (r.id != 0) replies.send(Reply(r.id, value));
+      final value = _run(r, c.buffer);
+      if (c.id != 0) replies.send(Reply(c.id, value));
     } on Smb2Exception catch (e) {
-      _fail(r, e);
+      _fail(c, e);
     } catch (e) {
-      _fail(r, Smb2Exception('Unexpected worker error: $e', cause: e));
+      _fail(c, Smb2Exception('Unexpected worker error: $e', cause: e));
     }
-    if (r.op == Op.close) commands.close();
+    if (r is Close) commands.close();
   }
 
-  void _fail(Request r, Smb2Exception e) {
-    if (r.id != 0) replies.send(Failure(r.id, e));
+  void _fail(Call c, Smb2Exception e) {
+    if (c.id != 0) replies.send(Failure(c.id, e));
   }
 
-  Smb2Handle _handle(Object? id, String what) {
-    final h = handles[id! as int];
+  Smb2Handle _handle(int id, String what) {
+    final h = handles[id];
     if (h == null) {
       throw Smb2Exception('$what: unknown handle', type: Smb2ErrorType.state);
     }
@@ -117,153 +118,137 @@ final class _Server {
     return id;
   }
 
-  Object? _run(Request r) {
-    final a = r.args;
-    switch (r.op) {
-      case Op.listDirectory:
-        return client.listDirectory(a[0]! as String);
-      case Op.listDirectoryIds:
-        return listDirectoryIds(client, a[0]! as String);
-      case Op.stat:
-        return client.stat(a[0]! as String);
-      case Op.statvfs:
-        return client.statvfs(a[0]! as String);
-      case Op.readlink:
-        return client.readlink(a[0]! as String);
-      case Op.echo:
+  /// Serves [r], with the native [buffer] of a write, which stays the main
+  /// isolate's: it frees it on the reply.
+  Object? _run(Request<Object?> r, int? buffer) {
+    switch (r) {
+      case ListDirectory(:final path):
+        return client.listDirectory(path);
+      case ListDirectoryIds(:final path):
+        return listDirectoryIds(client, path);
+      case Stat(:final path):
+        return client.stat(path);
+      case StatVfs(:final path):
+        return client.statvfs(path);
+      case Readlink(:final path):
+        return client.readlink(path);
+      case Echo():
         client.echo();
         return null;
-      case Op.readFile:
-        final (h, size) = client.openFileWithSize(a[0]! as String);
+      case ReadFile(:final path):
+        final (h, size) = client.openFileWithSize(path);
         try {
           return _bytes(client.readNative(h, length: size));
         } finally {
           client.closeHandle(h);
         }
-      case Op.readRange:
-        final h = client.openFile(a[0]! as String);
+      case ReadRange(:final path, :final offset, :final length):
+        final h = client.openFile(path);
         try {
-          return _bytes(
-            client.readNative(h, offset: a[1]! as int, length: a[2]! as int),
-          );
+          return _bytes(client.readNative(h, offset: offset, length: length));
         } finally {
           client.closeHandle(h);
         }
-      case Op.writeFile || Op.writeRange:
-        // The buffer stays the main isolate's, which frees it on the reply.
-        final h = client.openFileWrite(
-          a[0]! as String,
-          truncate: r.op == Op.writeFile,
-        );
+      case WriteFile(:final path, :final length):
+        final h = client.openFileWrite(path, truncate: true);
         try {
-          client.writeNative(
-            h,
-            a[1]! as int,
-            a[2]! as int,
-            offset: a[3]! as int,
-          );
+          client.writeNative(h, buffer!, length);
         } finally {
           client.closeHandle(h);
         }
         return null;
-      case Op.mkdir:
-        client.mkdir(a[0]! as String);
+      case WriteRange(:final path, :final length, :final offset):
+        final h = client.openFileWrite(path);
+        try {
+          client.writeNative(h, buffer!, length, offset: offset);
+        } finally {
+          client.closeHandle(h);
+        }
         return null;
-      case Op.rmdir:
-        client.rmdir(a[0]! as String);
+      case Mkdir(:final path):
+        client.mkdir(path);
         return null;
-      case Op.deleteFile:
-        client.deleteFile(a[0]! as String);
+      case Rmdir(:final path):
+        client.rmdir(path);
         return null;
-      case Op.rename:
-        client.rename(
-          a[0]! as String,
-          a[1]! as String,
-          overwrite: a[2]! as bool,
-        );
+      case DeleteFile(:final path):
+        client.deleteFile(path);
         return null;
-      case Op.link:
-        client.link(a[0]! as String, a[1]! as String);
+      case Rename(:final oldPath, :final newPath, :final overwrite):
+        client.rename(oldPath, newPath, overwrite: overwrite);
         return null;
-      case Op.symlink:
-        client.symlink(
-          a[0]! as String,
-          a[1]! as String,
-          directory: a[2]! as bool,
-        );
+      case Link(:final existingPath, :final newPath):
+        client.link(existingPath, newPath);
         return null;
-      case Op.truncate:
-        client.truncate(a[0]! as String, a[1]! as int);
+      case Symlink(:final target, :final linkPath, :final directory):
+        client.symlink(target, linkPath, directory: directory);
         return null;
-      case Op.setFileTimes:
-        final modified = a[1] as int?;
-        final accessed = a[2] as int?;
+      case Truncate(:final path, :final length):
+        client.truncate(path, length);
+        return null;
+      case SetFileTimes(:final path, :final modifiedUs, :final accessedUs):
         client.setFileTimes(
-          a[0]! as String,
-          modified: modified == null
+          path,
+          modified: modifiedUs == null
               ? null
-              : DateTime.fromMicrosecondsSinceEpoch(modified, isUtc: true),
-          accessed: accessed == null
+              : DateTime.fromMicrosecondsSinceEpoch(modifiedUs, isUtc: true),
+          accessed: accessedUs == null
               ? null
-              : DateTime.fromMicrosecondsSinceEpoch(accessed, isUtc: true),
+              : DateTime.fromMicrosecondsSinceEpoch(accessedUs, isUtc: true),
         );
         return null;
-      case Op.open:
-        return _keep(client.openFile(a[0]! as String));
-      case Op.openWithSize:
-        final (h, size) = client.openFileWithSize(a[0]! as String);
+      case Open(:final path):
+        return _keep(client.openFile(path));
+      case OpenWithSize(:final path):
+        final (h, size) = client.openFileWithSize(path);
         return (_keep(h), size);
-      case Op.openWrite:
-        final path = a[0]! as String;
-        final truncate = a[1]! as bool;
+      case OpenWrite(:final path, :final truncate, :final temporary):
         return _keep(
-          a[2]! as bool
+          temporary
               ? openTemporaryWrite(client, path, truncate: truncate)
               : client.openFileWrite(path, truncate: truncate),
         );
-      case Op.readHandle:
-        final h = _handle(a[0], 'Read');
+      case ReadHandle(:final id, :final offset, :final length):
+        final h = _handle(id, 'Read');
         if (emptyReadNext) {
           emptyReadNext = false;
           return const NativeBytes(0, 0);
         }
-        return _bytes(
-          client.readNative(h, offset: a[1]! as int, length: a[2]! as int),
-        );
-      case Op.writeHandle:
+        return _bytes(client.readNative(h, offset: offset, length: length));
+      case WriteHandle(:final id, :final length, :final offset):
         client.writeNative(
-          _handle(a[0], 'Write'),
-          a[1]! as int,
-          a[2]! as int,
-          offset: a[3]! as int,
+          _handle(id, 'Write'),
+          buffer!,
+          length,
+          offset: offset,
         );
         return null;
-      case Op.fsyncHandle:
-        client.fsyncHandle(_handle(a[0], 'Fsync'));
+      case FsyncHandle(:final id):
+        client.fsyncHandle(_handle(id, 'Fsync'));
         return null;
-      case Op.ftruncateHandle:
-        client.ftruncateHandle(_handle(a[0], 'Ftruncate'), a[1]! as int);
+      case FtruncateHandle(:final id, :final length):
+        client.ftruncateHandle(_handle(id, 'Ftruncate'), length);
         return null;
-      case Op.closeHandle:
-        final h = handles.remove(a[0]! as int);
+      case CloseHandle(:final id):
+        final h = handles.remove(id);
         if (h != null) client.closeHandle(h);
         return null;
-      case Op.close:
+      case Close():
         handles.clear();
         client.disconnect();
         return null;
-      case Op.injectFailures:
-        failNext = a[0]! as int;
+      case InjectFailures(:final count):
+        failNext = count;
         return null;
-      case Op.injectHang:
+      case InjectHang():
         hangNext = true;
         return null;
-      case Op.injectEmptyRead:
+      case InjectEmptyRead():
         emptyReadNext = true;
         return null;
-      case Op.injectHandleCount:
+      case InjectHandleCount():
         return handles.length;
-      case Op.injectExit:
+      case InjectExit():
         Isolate.exit();
     }
   }

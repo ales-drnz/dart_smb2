@@ -18,7 +18,7 @@ abstract class _PoolCore {
   final Set<Future<void> Function()> _watches = {};
 
   /// Closes still on their way to the server, by path: a call that would
-  /// conflict with the open file waits for them (see [_mutates]).
+  /// conflict with the open file waits for them (see [Mutation]).
   final Map<String, Future<void>> _pendingCloses = {};
 
   /// The server's refusal of the last reconnect (credentials, the share),
@@ -104,20 +104,19 @@ abstract class _PoolCore {
     }
   }
 
-  /// Runs [op] on the least busy worker, reconnecting and repeating once
-  /// after a network failure when [idempotent]. [args] is a list, or a
-  /// function that builds it (for writes, whose native buffer each attempt
-  /// consumes).
+  /// Runs [request] on the least busy worker, reconnecting and repeating
+  /// once after a network failure when [idempotent]. [buffer] makes the
+  /// native buffer of a write, which each attempt consumes.
   Future<T> _run<T>(
-    Op op,
-    Object args, {
+    Request<T> request, {
+    int Function()? buffer,
     String? path,
     bool idempotent = true,
     Smb2CancelToken? cancelToken,
   }) => _dispatch<T, T>(
-    op,
-    args,
+    request,
     _valueOnly,
+    buffer: buffer,
     path: path,
     idempotent: idempotent,
     cancelToken: cancelToken,
@@ -129,29 +128,26 @@ abstract class _PoolCore {
   /// A cancelled [cancelToken] ends the call at once, also while it waits
   /// for a slot or a reconnect.
   Future<R> _dispatch<T, R>(
-    Op op,
-    Object args,
+    Request<T> request,
     R Function(Slot slot, T value) result, {
+    int Function()? buffer,
     String? path,
     bool idempotent = true,
     Smb2CancelToken? cancelToken,
   }) async {
     _ensureOpen(path);
     cancelToken?.throwIfCancelled(path: path);
-    if (_mutates.contains(op) && _pendingCloses.isNotEmpty) {
+    if (request case final Mutation mutation when _pendingCloses.isNotEmpty) {
       // A rename or rmdir of a directory also waits for the files in it:
       // the server refuses one while a file below is open.
-      final below = op == Op.rename || op == Op.rmdir;
       final closes = [
-        for (final p in [path, if (op == Op.rename) (args as List)[1]])
-          if (p is String) ..._closesOf(_pathKey(p), below: below),
+        for (final p in mutation.conflicts)
+          ..._closesOf(_pathKey(p), below: mutation.coversTree),
       ];
       if (closes.isNotEmpty) {
         await _orCancel(Future.wait(closes), cancelToken, path);
       }
     }
-    List<Object?> build() =>
-        args is List<Object?> ? args : (args as List<Object?> Function())();
     Slot slot = _pickNow() ?? await _orCancel(_pickLater(), cancelToken, path);
     final worker = slot.worker;
     // A worker already dead never sends the request: repeating it is safe
@@ -160,7 +156,12 @@ abstract class _PoolCore {
     try {
       return result(
         slot,
-        await worker.call<T>(op, build(), cancelToken: cancelToken, path: path),
+        await worker.call(
+          request,
+          buffer: buffer?.call(),
+          cancelToken: cancelToken,
+          path: path,
+        ),
       );
     } on Smb2Exception catch (e) {
       if (!e.isNetworkFailure || _closed) rethrow;
@@ -181,18 +182,23 @@ abstract class _PoolCore {
       cancelToken?.throwIfCancelled(path: path);
       return result(
         slot,
-        await fresh.call<T>(op, build(), cancelToken: cancelToken, path: path),
+        await fresh.call(
+          request,
+          buffer: buffer?.call(),
+          cancelToken: cancelToken,
+          path: path,
+        ),
       );
     }
   }
 
-  /// Runs [op] on [handle]'s worker, reopening the file first when the
+  /// Runs [request] on [handle]'s worker, reopening the file first when the
   /// worker was replaced, and reconnecting, reopening and repeating once
   /// after a network failure.
   Future<T> _onHandle<T>(
     Smb2PoolHandle handle,
-    Op op,
-    List<Object?> Function(int id) args, {
+    Request<T> Function(int id) request, {
+    int Function()? buffer,
     Smb2CancelToken? cancelToken,
   }) async {
     final path = handle.path;
@@ -209,9 +215,9 @@ abstract class _PoolCore {
     final worker = handle.slot.worker;
     _ensureCurrent(handle);
     try {
-      return await worker.call<T>(
-        op,
-        args(handle.id),
+      return await worker.call(
+        request(handle.id),
+        buffer: buffer?.call(),
         cancelToken: cancelToken,
         path: path,
       );
@@ -221,9 +227,9 @@ abstract class _PoolCore {
       cancelToken?.throwIfCancelled(path: path);
       await _reopen(handle, cancelToken);
       _ensureCurrent(handle);
-      return handle.slot.worker.call<T>(
-        op,
-        args(handle.id),
+      return handle.slot.worker.call(
+        request(handle.id),
+        buffer: buffer?.call(),
         cancelToken: cancelToken,
         path: path,
       );
@@ -238,11 +244,14 @@ abstract class _PoolCore {
     return _orCancel(
       handle.reopen(
         (worker) => worker.call<int>(
-          handle.writable ? Op.openWrite : Op.open,
-          // Never truncate again: the data written so far must stay.
           handle.writable
-              ? [handle.path, false, handle.temporary]
-              : [handle.path],
+              // Never truncate again: the data written so far must stay.
+              ? OpenWrite(
+                  handle.path,
+                  truncate: false,
+                  temporary: handle.temporary,
+                )
+              : Open(handle.path),
           path: handle.path,
         ),
       ),
@@ -388,17 +397,3 @@ Future<T> _orCancel<T>(Future<T> future, Smb2CancelToken? token, String? path) {
 }
 
 T _valueOnly<T>(Slot _, T value) => value;
-
-/// The calls that conflict with a file still open on the server: they wait
-/// for the closes of their paths still in flight.
-const _mutates = {
-  Op.deleteFile,
-  Op.rename,
-  Op.link,
-  Op.rmdir,
-  Op.truncate,
-  Op.setFileTimes,
-  Op.writeFile,
-  Op.writeRange,
-  Op.openWrite,
-};

@@ -87,7 +87,7 @@ final class Smb2PoolHandle {
   bool get isClosed => _closed;
 
   static final _finalizer = Finalizer<_Leak>(
-    (leak) => leak.worker.post(Op.closeHandle, [leak.id]),
+    (leak) => leak.worker.post(CloseHandle(leak.id)),
   );
 }
 
@@ -147,7 +147,7 @@ extension Smb2PoolHandleInternal on Smb2PoolHandle {
         final generation = _slot.generation;
         final id = await open(worker);
         if (_closed) {
-          worker.post(Op.closeHandle, [id]);
+          worker.post(CloseHandle(id));
           throw Smb2Exception(
             'The handle was closed while it was opened again',
             type: Smb2ErrorType.state,
