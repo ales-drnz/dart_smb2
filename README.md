@@ -28,7 +28,7 @@ dependencies:
   dart_smb2: ^0.4.0
 ```
 
-The build downloads the libsmb2 library of each target from the [`libsmb2-r12` release](https://github.com/ales-drnz/dart_smb2/releases/tag/libsmb2-r12) and checks its SHA-256, so the first build needs network access.
+The build downloads the libsmb2 binary for each target and checks its SHA-256, so the first build needs network access.
 
 ## Platform requirements
 
@@ -41,8 +41,6 @@ The build downloads the libsmb2 library of each target from the [`libsmb2-r12` r
 | Linux | glibc 2.31 (Ubuntu 20.04, Debian 11) | aarch64, x86_64 | 2.6, 3.5 MB | Yes | - |
 
 Each library carries OpenSSL's libcrypto, linked in for SMB3 encryption with AES-GCM: that is most of its size.
-
-The Linux libraries are built and tested on glibc 2.31, the oldest supported. They reference no glibc symbol newer than 2.25, so an older system may load them, untested.
 
 The package needs Dart 3.10, and Flutter 3.47 in a Flutter app. It is a plain Dart package: command-line tools and servers use it as well.
 
@@ -209,12 +207,6 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 <key>com.apple.security.network.client</key>
 <true/>
 ```
-
----
-
-## Versioning and deprecations
-
-While the package is 0.x, a breaking change comes only with a minor release (0.3 to 0.4), listed under "Breaking" in the [CHANGELOG](CHANGELOG.md) with its replacement in [MIGRATION](MIGRATION.md); a patch release (0.3.0 to 0.3.1) breaks nothing, so `^0.3.0` is safe. A name that is going away is deprecated first, and stays for at least one minor release before it is removed.
 
 ---
 

@@ -36,7 +36,6 @@
 - A download that fails in the build hook closes its file, and a failed unzip leaves no folder behind.
 
 ### Docs
-- The README says which glibc the Linux libraries need, and how versions and deprecations work.
 - `readFileChunked()` says when it closes its handle.
 
 ## [0.3.0] - 8-11-2026
