@@ -6,7 +6,7 @@
 /// in hook/build.dart), as libsmb2's `smb2_scripts_release()` returns it.
 /// tool/bindings_drift.dart checks that the hook pins the same release, and
 /// tool/update_libsmb2.sh rewrites both.
-const String libsmb2Release = 'r11';
+const String libsmb2Release = 'r12';
 
 /// Why the package cannot run on a libsmb2 that reports [release] (`null`
 /// when it has no `smb2_scripts_release()`, as upstream libsmb2), or `null`

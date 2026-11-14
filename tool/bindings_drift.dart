@@ -27,9 +27,9 @@ import 'dart:io';
 
 /// Functions bound ahead of the pinned release: patched into
 /// libsmb2-scripts already, and in no released binary yet. The package
-/// checks at run time whether the libsmb2 it loaded has them
-/// (`libsmb2SharesDelete`). Empty again once the pin is libsmb2-r12.
-const _ahead = {'smb2_open2'};
+/// must then check at run time whether the libsmb2 it loaded has them.
+/// None at libsmb2-r12.
+const _ahead = <String>{};
 
 /// The problems found, empty when nothing drifted. [root] is the package
 /// root; [scripts] a libsmb2-scripts checkout, or null.

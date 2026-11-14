@@ -315,20 +315,6 @@ external int smb2_readlink(
   int bufsiz,
 );
 
-/// Sync rename()
-@ffi.Native<
-  ffi.Int Function(
-    ffi.Pointer<smb2_context>,
-    ffi.Pointer<ffi.Char>,
-    ffi.Pointer<ffi.Char>,
-  )
->()
-external int smb2_rename(
-  ffi.Pointer<smb2_context> smb2,
-  ffi.Pointer<ffi.Char> oldpath,
-  ffi.Pointer<ffi.Char> newpath,
-);
-
 /// Sync rename2()
 @ffi.Native<
   ffi.Int Function(
