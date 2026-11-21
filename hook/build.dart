@@ -32,7 +32,7 @@ import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 import 'package:meta/meta.dart';
 
-const _release = 'libsmb2-r13';
+const _release = 'libsmb2-r14';
 
 /// The Android API level the release's libraries are built for.
 const _androidMinApi = 24;
@@ -44,23 +44,23 @@ const _baseUrl =
 /// not published yet: the hook then needs hooks.user_defines.dart_smb2.libsmb2.
 const _sha256 = <String, String>{
   'libsmb2_android-arm64-v8a.so':
-      'a7365d8d1991bb65d114e839b06ca043c018c7b9f9246f86e8caf2eb95a0683b',
+      '52a1934c4030976a8c63e4e8defd55c5a96b7f05ac5703f1d4a2431d87548a7a',
   'libsmb2_android-armeabi-v7a.so':
-      '50a9ab610af807a10582dc448594a9a30fc619222fa2566c08404ba0c4d8c7ba',
+      '4af4bbf5affc9d2d26e36acc74600b6ff439d261fbd2b2ae096060065fb3b995',
   'libsmb2_android-x86_64.so':
-      '022b07e2bff498d2639ee427e5d1ea6fc4116f08423edf7e2b6688320cef00a6',
+      'a240ffc110c34a6650b4a94051d13f9e1bc21eeb11335f58e1fe5669bbe909c0',
   'libsmb2_ios.xcframework.zip':
-      '6f82d99bbebbf9f498a135b4aeaa9c36f76291a4083f9f5ef0143013d85a4b0a',
+      '001af874e5a49e4bbeb32757d85c4a95f7777e202142b5326d50cdb757679a4b',
   'libsmb2_linux-aarch64.so':
-      '4f3a0a2c019b37dc5e23b58aa3b9ce15c30ee78cf443e313a2255bc1d41eea07',
+      '32fe216633906379750767e50082b0bc36a876e04c16d3349b7bd9c8e37e112e',
   'libsmb2_linux-x86_64.so':
-      '4f054d59e3c4045e67562e710f2a17504538c5ebde44f70a84ca84b5cf0310af',
+      '2df50cd485ecda6a3ca4bba13cc85baba5dcd64f99aa51cf675cce9dd55a0b70',
   'libsmb2_macos.xcframework.zip':
-      'e1af195ee8b7bee104223c44d4080b899ad89a48443c3532bea15dac72bede4f',
+      'b9d4562b78e5e709f43745ddbddfee16cc102e653cab49a3df3282e77161bc1e',
   'libsmb2_windows-arm64.dll':
-      '6fcff2f32f2b9130e81bdcc62c1cc4652e7d8cdc04bc3296a35c8a2b1501c6fd',
+      '823e627e324ad053743ba8e743692a61d3c19345453a214834927a178d267c4d',
   'libsmb2_windows-x86_64.dll':
-      '1c5928fd9ae6228f828f0bf4d4d453ad25d4a3aa77c93c45c736da0848b921f7',
+      'b0121b0ccff769aa1d1f923aa2001cf6de882c335b2ff97444c341488613d544',
 };
 
 void main(List<String> args) async {
