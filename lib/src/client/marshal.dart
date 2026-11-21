@@ -28,10 +28,10 @@ DateTime _time(int seconds, int nanoseconds) => statTime(seconds, nanoseconds);
 /// The time of a stat field, from libsmb2's seconds since the Unix epoch
 /// and nanoseconds.
 ///
-/// libsmb2 subtracts the epoch from the server's FILETIME as an unsigned
-/// number, so a time the server does not keep (a FILETIME of 0) or one
-/// before 1970 wraps to a count of seconds far past the year 9999. Those
-/// are given as the Unix epoch.
+/// A time the server does not keep (a FILETIME of 0) or one before 1970
+/// is a negative count of seconds since libsmb2 7.0.0, and was a count far
+/// past the year 9999 before it, when libsmb2 subtracted the epoch as an
+/// unsigned number. Both are given as the Unix epoch.
 @internal
 DateTime statTime(int seconds, int nanoseconds) {
   if (seconds < 0 || seconds > _lastSecond) {
