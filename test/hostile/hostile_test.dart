@@ -238,7 +238,14 @@ void main() {
         final r = await run(name, op);
         printOnFailure('outcome=${r.outcome} ${r.error}');
         expect(r.outcome, 'clean-error');
-        expect(r.error?['type'], anyOf('timeout', 'connection', 'auth'));
+        // Since r14 a session setup cut after sixteen legs fails with
+        // EACCES, as upstream fails the others: accessDenied.
+        expect(
+          r.error?['type'],
+          name == 'ss_more_processing_forever'
+              ? 'accessDenied'
+              : anyOf('timeout', 'connection'),
+        );
       });
     }
   });
