@@ -1,4 +1,4 @@
-## [0.5.0] - unreleased
+## [0.5.0] - 21-11-2026
 
 ### libsmb2-r14
 **All platforms**
