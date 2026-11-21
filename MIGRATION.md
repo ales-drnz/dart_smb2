@@ -1,3 +1,16 @@
+# Migrating to 0.5.0
+
+0.5.0 moves to libsmb2 7.0.0; it adds no API and removes none. Code that
+builds with 0.4.1 builds with 0.5.0 unchanged.
+
+## libsmb2-r14
+
+The hook bundles `libsmb2-r14`. A libsmb2 of your own that
+`hooks.user_defines` points at must be a build of libsmb2-scripts at
+`libsmb2-r14`: with `libsmb2-r13`, as with any other release, connecting
+fails with an `Smb2Exception` of type `notSupported` that names the
+release it found.
+
 # Migrating to 0.4.0
 
 0.4.0 fixes and hardens; it adds no API and removes none. Code that
