@@ -3,7 +3,7 @@
 #### SMB2/3 client for Dart and Flutter.
 
 [![](https://img.shields.io/pub/v/dart_smb2.svg?style=for-the-badge&logo=dart&logoColor=white)](https://pub.dev/packages/dart_smb2)
-[![](https://img.shields.io/badge/libsmb2-r13-orange.svg?style=for-the-badge)](https://github.com/ales-drnz/libsmb2-scripts)
+[![](https://img.shields.io/badge/libsmb2-r14-orange.svg?style=for-the-badge)](https://github.com/ales-drnz/libsmb2-scripts)
 [![](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg?style=for-the-badge)](LICENSE)
 [![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ales-drnz/dart_smb2)
 [![](https://img.shields.io/discord/1485588004029333516?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/g2Qf4Mq9MP)
@@ -60,7 +60,7 @@
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.4.1
+  dart_smb2: ^0.5.0
 ```
 
 The build downloads the libsmb2 binary for each target and checks its SHA-256, so the first build needs network access.
