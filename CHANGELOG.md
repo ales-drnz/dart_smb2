@@ -1,3 +1,21 @@
+## [0.5.0] - unreleased
+
+### libsmb2-r14
+**All platforms**
+- Built from upstream master of 20-11-2026: libsmb2 7.0.0, upstream's first release since 6.2, and the fixes after it. Upstream now carries the fixes of r12 and r13 that were sent to it from libsmb2-scripts.
+- A server that negotiates a read size of 0 can no longer make a read write past the end of the caller's buffer.
+- A signed compound reply that arrives over several reads of the socket has the signature of each of its parts checked.
+- Closing a connection frees the files and directories still open on it: a client dropped without `disconnect()` no longer leaks them.
+- A write reply that claims more bytes than were sent fails, instead of moving the offset past data that was never written.
+- The read and write sizes a server negotiates are capped at 8 MiB, so a forged one no longer becomes the size of a buffer.
+- A directory listing whose entries overlap fails, instead of filling memory with entries a few bytes apart.
+- A path longer than a CREATE request can name fails, instead of opening the root of the share.
+
+### All platforms
+**Changed**
+- The bundled libsmb2 is `libsmb2-r14`. A libsmb2 of your own, set through `hooks.user_defines`, must be a build of libsmb2-scripts at `libsmb2-r14`.
+- A connect whose session setup the server never completes fails with `accessDenied`, as other failed session setups do; it was `auth`.
+
 ## [0.4.1] - 15-11-2026
 
 ### libsmb2-r13
